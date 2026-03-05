@@ -10,6 +10,13 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import asyncio
+import sys
+if sys.version_info >= (3, 10):
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
 from dotenv import load_dotenv
 from telegram import Update, BotCommand
 from telegram.ext import (
