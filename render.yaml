@@ -1,0 +1,19 @@
+services:
+  - type: worker
+    name: transito-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: CHAT_ID_GRUPO
+        sync: false
+      - key: ALLOWED_USERS
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: TIMEZONE
+        value: America/Guatemala
