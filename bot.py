@@ -401,7 +401,7 @@ async def post_init(application):
     logger.info("Bot iniciado ✅")
 
 
-async def main():
+def main():
     app = (
         Application.builder()
         .token(TELEGRAM_TOKEN)
@@ -423,9 +423,8 @@ async def main():
     app.add_handler(MessageHandler(filters.VOICE,     handle_voice))
 
     logger.info("🤖 Escuchando mensajes...")
-    await app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
