@@ -405,7 +405,73 @@ async def post_init(application):
         BotCommand("ayuda",           "Guía completa"),
     ])
     scheduler.start()
-    logger.info("Bot iniciado ✅")
+
+    # ── Reportes automáticos por turno 
+──────────────────────────────────────
+    allowed = list(ALLOWED_USERS) if ALLOWED_USERS else []
+
+    async def reporte_automatico(bot, turno_nombre):
+        now = datetime.now(TZ)
+        for uid in allowed:
+            try:
+                lotes = db.get_lotes_turno_activo(uid)
+                if not lotes:
+                    await bot.send_message(
+                        chat_id=uid,
+                        text=f"⏰ *Reporte automático — 
+{turno_nombre}*\n\nNo hay lotes registrados en este turno.",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    continue
+
+                # Enviar resumen al usuario
+                texto = f"⏰ *Reporte automático — {turno_nombre}*\n\n" + 
+generar_resumen_texto(lotes)
+                await bot.send_message(chat_id=uid, text=texto, 
+parse_mode=ParseMode.MARKDOWN)
+
+                # Enviar al grupo si está configurado
+                if CHAT_ID_GRUPO:
+                    await enviar_reporte_grupo(bot, CHAT_ID_GRUPO, lotes)
+
+                # Cerrar turno automáticamente
+                db.cerrar_turno(uid, now.isoformat())
+                await bot.send_message(
+                    chat_id=uid,
+                    text=f"✅ *{turno_nombre} cerrado 
+automáticamente.*\nEl siguiente registro iniciará un turno nuevo.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception as e:
+                logger.error(f"Error en reporte automático para {uid}: 
+{e}")
+
+    # Turno 1 → reporte a las 15:00
+    scheduler.add_job(
+        reporte_automatico,
+        trigger="cron", hour=15, minute=0, timezone=TIMEZONE,
+        args=[application.bot, "Turno 1 (07:00–16:00)"],
+        id="reporte_turno1", replace_existing=True
+    )
+
+    # Turno 2 → reporte a las 22:00
+    scheduler.add_job(
+        reporte_automatico,
+        trigger="cron", hour=22, minute=0, timezone=TIMEZONE,
+        args=[application.bot, "Turno 2 (16:00–23:00)"],
+        id="reporte_turno2", replace_existing=True
+    )
+
+    # Turno 3 → reporte a las 05:00
+    scheduler.add_job(
+        reporte_automatico,
+        trigger="cron", hour=5, minute=0, timezone=TIMEZONE,
+        args=[application.bot, "Turno 3 (23:00–07:00)"],
+        id="reporte_turno3", replace_existing=True
+    )
+
+    logger.info("Bot iniciado ✅ — Reportes automáticos programados: 
+05:00, 15:00, 22:00")
 
 
 def main():
