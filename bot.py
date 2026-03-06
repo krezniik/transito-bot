@@ -38,7 +38,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── Configuración ─────────────────────────────────────────────────────────────
+# -- Configuración -------------------------------------------------------------
 TELEGRAM_TOKEN    = os.getenv("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
@@ -55,14 +55,14 @@ anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 openai_client    = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 
-# ── Seguridad ─────────────────────────────────────────────────────────────────
+# -- Seguridad -----------------------------------------------------------------
 def autorizado(update: Update) -> bool:
     if not ALLOWED_USERS:
         return True
     return update.effective_user.id in ALLOWED_USERS
 
 
-# ── /start ────────────────────────────────────────────────────────────────────
+# -- /start --------------------------------------------------------------------
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     texto = (
@@ -80,7 +80,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
 
 
-# ── /ayuda ────────────────────────────────────────────────────────────────────
+# -- /ayuda --------------------------------------------------------------------
 async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     texto = (
@@ -113,7 +113,7 @@ async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
 
 
-# ── /lote ─────────────────────────────────────────────────────────────────────
+# -- /lote ---------------------------------------------------------------------
 async def cmd_lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
@@ -163,7 +163,7 @@ async def cmd_lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(respuesta, parse_mode=ParseMode.MARKDOWN)
 
 
-# ── Nota de voz ───────────────────────────────────────────────────────────────
+# -- Nota de voz ---------------------------------------------------------------
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     import tempfile
@@ -216,7 +216,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(respuesta, parse_mode=ParseMode.MARKDOWN)
 
 
-# ── /resumen ──────────────────────────────────────────────────────────────────
+# -- /resumen ------------------------------------------------------------------
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
@@ -230,7 +230,7 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
 
 
-# ── /enviar ───────────────────────────────────────────────────────────────────
+# -- /enviar -------------------------------------------------------------------
 async def cmd_enviar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
@@ -252,7 +252,7 @@ async def cmd_enviar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Error al enviar: {e}")
 
 
-# ── /nuevo_turno ──────────────────────────────────────────────────────────────
+# -- /nuevo_turno --------------------------------------------------------------
 async def cmd_nuevo_turno(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
@@ -265,7 +265,7 @@ async def cmd_nuevo_turno(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ── /eliminar_lote ────────────────────────────────────────────────────────────
+# -- /eliminar_lote ------------------------------------------------------------
 async def cmd_eliminar_lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     if not context.args:
@@ -280,7 +280,7 @@ async def cmd_eliminar_lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ No encontré ese lote o no te pertenece.")
 
 
-# ── /reporte ──────────────────────────────────────────────────────────────────
+# -- /reporte ------------------------------------------------------------------
 async def cmd_reporte(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
@@ -309,7 +309,7 @@ async def cmd_reporte(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
 
 
-# ── /exportar ─────────────────────────────────────────────────────────────────
+# -- /exportar -----------------------------------------------------------------
 async def cmd_exportar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
@@ -353,7 +353,7 @@ async def cmd_exportar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     os.unlink(ruta_excel)
 
 
-# ── /recordatorio ─────────────────────────────────────────────────────────────
+# -- /recordatorio -------------------------------------------------------------
 async def cmd_recordatorio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
@@ -378,7 +378,7 @@ async def cmd_recordatorio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ── /cancelar_alerta ─────────────────────────────────────────────────────────
+# -- /cancelar_alerta ---------------------------------------------------------
 async def cmd_cancelar_alerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
@@ -389,7 +389,7 @@ async def cmd_cancelar_alerta(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("ℹ️ No tenías ninguna alerta activa.")
 
 
-# ── Arranque ──────────────────────────────────────────────────────────────────
+# -- Arranque ------------------------------------------------------------------
 async def post_init(application):
     await application.bot.set_my_commands([
         BotCommand("start",           "Iniciar el bot"),
@@ -406,8 +406,8 @@ async def post_init(application):
     ])
     scheduler.start()
 
-    # ── Reportes automáticos por turno 
-──────────────────────────────────────
+    # -- Reportes automáticos por turno 
+--------------------------------------
     allowed = list(ALLOWED_USERS) if ALLOWED_USERS else []
 
     async def reporte_automatico(bot, turno_nombre):
