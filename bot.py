@@ -4,19 +4,16 @@ Bot de Telegram — Calculadora de Cajas en Tránsito
 Operación completa desde Telegram: ingreso de lotes, cálculo,
 recordatorios, historial y exportación a Excel.
 """
-
 import os
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
-
 import asyncio
 import sys
 if sys.version_info >= (3, 10):
     import asyncio
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-
 from dotenv import load_dotenv
 from telegram import Update, BotCommand
 from telegram.ext import (
@@ -25,19 +22,16 @@ from telegram.ext import (
 )
 from telegram.constants import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
 from database import Database
 from lote_parser import parsear_lote_con_claude
 from reporter import generar_resumen_texto, enviar_reporte_grupo, exportar_excel
 from recordatorio import programar_recordatorio, cancelar_recordatorio_activo
-
 load_dotenv()
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
 # -- Configuración -------------------------------------------------------------
 TELEGRAM_TOKEN    = os.getenv("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
@@ -46,22 +40,16 @@ CHAT_ID_GRUPO     = os.getenv("CHAT_ID_GRUPO")          # Grupo donde va el repo
 ALLOWED_USERS     = set(map(int, os.getenv("ALLOWED_USERS", "").split(","))) if os.getenv("ALLOWED_USERS") else set()
 TIMEZONE          = os.getenv("TIMEZONE", "America/Guatemala")
 TZ                = ZoneInfo(TIMEZONE)
-
 db        = Database()
 scheduler = AsyncIOScheduler(timezone=TIMEZONE)
-
 import anthropic, openai
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 openai_client    = openai.OpenAI(api_key=OPENAI_API_KEY)
-
-
 # -- Seguridad -----------------------------------------------------------------
 def autorizado(update: Update) -> bool:
     if not ALLOWED_USERS:
         return True
     return update.effective_user.id in ALLOWED_USERS
-
-
 # -- /start --------------------------------------------------------------------
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
@@ -78,8 +66,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/ayuda` — Ver guía completa\n"
     )
     await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
-
-
 # -- /ayuda --------------------------------------------------------------------
 async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
@@ -111,14 +97,11 @@ async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/cancelar_alerta` — Desactivar\n"
     )
     await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
-
-
 # -- /lote ---------------------------------------------------------------------
 async def cmd_lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
     now     = datetime.now(TZ)
-
     if not context.args:
         await update.message.reply_text(
             "⚠️ Formato: `/lote Mespack1 canastas:12 pres:8 producto:N pin:P mercado:L`\n"
@@ -126,19 +109,14 @@ async def cmd_lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN
         )
         return
-
     texto_lote = " ".join(context.args)
     await update.effective_chat.send_action("typing")
-
     resultado = await parsear_lote_con_claude(anthropic_client, texto_lote, now)
-
     if resultado.get("error"):
         await update.message.reply_text(f"❌ {resultado['error']}")
         return
-
     # Guardar en BD
     lote_id = db.guardar_lote(user_id=user_id, datos=resultado, timestamp=now.isoformat())
-
     maquina       = resultado["maquina"]
     cajas         = resultado["cajas_en_transito"]
     presentacion  = resultado["presentacion"]
@@ -147,7 +125,6 @@ async def cmd_lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pin_leg       = resultado["pin_legible"]
     c_x_canasta   = resultado["cajas_por_canasta"]
     canastas      = resultado["canastas"]
-
     respuesta = (
         f"✅ *Lote registrado* — ID `{lote_id}`\n\n"
         f"⚙️ {maquina}\n"
@@ -161,22 +138,17 @@ async def cmd_lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Usa /resumen para ver el total del turno."
     )
     await update.message.reply_text(respuesta, parse_mode=ParseMode.MARKDOWN)
-
-
 # -- Nota de voz ---------------------------------------------------------------
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     import tempfile
     from pathlib import Path
-
     await update.effective_chat.send_action("typing")
     now = datetime.now(TZ)
-
     voice_file = await update.message.voice.get_file()
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
         await voice_file.download_to_drive(tmp.name)
         tmp_path = tmp.name
-
     try:
         with open(tmp_path, "rb") as f:
             transcript = openai_client.audio.transcriptions.create(
@@ -189,11 +161,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     finally:
         Path(tmp_path).unlink(missing_ok=True)
-
     await update.message.reply_text(f"🎙️ *Escuché:*\n_{texto}_", parse_mode=ParseMode.MARKDOWN)
-
     resultado = await parsear_lote_con_claude(anthropic_client, texto, now)
-
     if resultado.get("error"):
         await update.message.reply_text(
             f"⚠️ No pude identificar todos los datos del lote: {resultado['error']}\n"
@@ -201,10 +170,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN
         )
         return
-
     user_id = update.effective_user.id
     lote_id = db.guardar_lote(user_id=user_id, datos=resultado, timestamp=now.isoformat())
-
     cajas = resultado["cajas_en_transito"]
     respuesta = (
         f"✅ *Lote registrado desde voz* — ID `{lote_id}`\n\n"
@@ -214,44 +181,33 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Usa /resumen para ver el total del turno."
     )
     await update.message.reply_text(respuesta, parse_mode=ParseMode.MARKDOWN)
-
-
 # -- /resumen ------------------------------------------------------------------
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
     lotes   = db.get_lotes_turno_activo(user_id)
-
     if not lotes:
         await update.message.reply_text("📭 No hay lotes registrados en el turno actual.\nUsa /lote para agregar uno.")
         return
-
     texto = generar_resumen_texto(lotes)
     await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
-
-
 # -- /enviar -------------------------------------------------------------------
 async def cmd_enviar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
     lotes   = db.get_lotes_turno_activo(user_id)
-
     if not lotes:
         await update.message.reply_text("📭 No hay lotes para enviar.")
         return
-
     if not CHAT_ID_GRUPO:
         await update.message.reply_text("❌ No está configurado el CHAT_ID_GRUPO en .env")
         return
-
     try:
         await enviar_reporte_grupo(context.bot, CHAT_ID_GRUPO, lotes)
         await update.message.reply_text("✅ Resumen enviado al grupo correctamente.")
     except Exception as e:
         logger.error(f"Error enviando al grupo: {e}")
         await update.message.reply_text(f"❌ Error al enviar: {e}")
-
-
 # -- /nuevo_turno --------------------------------------------------------------
 async def cmd_nuevo_turno(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
@@ -263,8 +219,6 @@ async def cmd_nuevo_turno(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Puedes empezar a registrar lotes para el nuevo turno.",
         parse_mode=ParseMode.MARKDOWN
     )
-
-
 # -- /eliminar_lote ------------------------------------------------------------
 async def cmd_eliminar_lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
@@ -278,15 +232,12 @@ async def cmd_eliminar_lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Lote `{lote_id}` eliminado.", parse_mode=ParseMode.MARKDOWN)
     else:
         await update.message.reply_text("❌ No encontré ese lote o no te pertenece.")
-
-
 # -- /reporte ------------------------------------------------------------------
 async def cmd_reporte(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
     now     = datetime.now(TZ)
     arg     = context.args[0].lower() if context.args else "hoy"
-
     if arg == "hoy":
         fecha = now.date()
     elif arg == "ayer":
@@ -299,23 +250,18 @@ async def cmd_reporte(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError:
             await update.message.reply_text("❌ Formato de fecha inválido. Usa: `hoy`, `ayer` o `YYYY-MM-DD`", parse_mode=ParseMode.MARKDOWN)
             return
-
     lotes = db.get_lotes_por_fecha(user_id, str(fecha))
     if not lotes:
         await update.message.reply_text(f"📭 No hay registros para *{fecha}*.", parse_mode=ParseMode.MARKDOWN)
         return
-
     texto = f"📅 *Reporte del {fecha}*\n\n" + generar_resumen_texto(lotes)
     await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
-
-
 # -- /exportar -----------------------------------------------------------------
 async def cmd_exportar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
     now     = datetime.now(TZ)
     arg     = context.args[0].lower() if context.args else "hoy"
-
     if arg == "hoy":
         desde = hasta = now.date()
     elif arg == "ayer":
@@ -333,51 +279,40 @@ async def cmd_exportar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError:
             await update.message.reply_text("❌ Usa: `hoy`, `ayer`, `semana` o `YYYY-MM-DD`", parse_mode=ParseMode.MARKDOWN)
             return
-
     lotes = db.get_lotes_rango(user_id, str(desde), str(hasta))
     if not lotes:
         await update.message.reply_text(f"📭 No hay registros entre {desde} y {hasta}.")
         return
-
     await update.effective_chat.send_action("upload_document")
     ruta_excel = exportar_excel(lotes, desde, hasta)
-
     with open(ruta_excel, "rb") as f:
         await update.message.reply_document(
             document=f,
             filename=f"transito_{desde}_{hasta}.xlsx",
-            caption=f"📊 Reporte de tránsito: {desde} → {hasta}"
+            caption=f"📊 Reporte de tránsito: {desde} -> {hasta}"
         )
-
     import os
     os.unlink(ruta_excel)
-
-
 # -- /recordatorio -------------------------------------------------------------
 async def cmd_recordatorio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
-
     if not context.args or not context.args[0].isdigit():
         await update.message.reply_text(
-            "⏰ Uso: `/recordatorio <horas>`\nEjemplo: `/recordatorio 2` → alerta cada 2 horas",
+            "⏰ Uso: `/recordatorio <horas>`\nEjemplo: `/recordatorio 2` -> alerta cada 2 horas",
             parse_mode=ParseMode.MARKDOWN
         )
         return
-
     horas = int(context.args[0])
     if horas < 1 or horas > 24:
         await update.message.reply_text("❌ Las horas deben estar entre 1 y 24.")
         return
-
     programar_recordatorio(scheduler, context.application, user_id, horas)
     await update.message.reply_text(
         f"✅ Alerta activada cada *{horas} hora(s)*.\n"
         "Usa /cancelar\\_alerta para desactivarla.",
         parse_mode=ParseMode.MARKDOWN
     )
-
-
 # -- /cancelar_alerta ---------------------------------------------------------
 async def cmd_cancelar_alerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
@@ -387,8 +322,6 @@ async def cmd_cancelar_alerta(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("🔕 Alerta periódica desactivada.")
     else:
         await update.message.reply_text("ℹ️ No tenías ninguna alerta activa.")
-
-
 # -- Arranque ------------------------------------------------------------------
 async def post_init(application):
     await application.bot.set_my_commands([
@@ -405,11 +338,8 @@ async def post_init(application):
         BotCommand("ayuda",           "Guía completa"),
     ])
     scheduler.start()
-
     # -- Reportes automáticos por turno 
---------------------------------------
     allowed = list(ALLOWED_USERS) if ALLOWED_USERS else []
-
     async def reporte_automatico(bot, turno_nombre):
         now = datetime.now(TZ)
         for uid in allowed:
@@ -423,17 +353,14 @@ async def post_init(application):
                         parse_mode=ParseMode.MARKDOWN
                     )
                     continue
-
                 # Enviar resumen al usuario
                 texto = f"⏰ *Reporte automático — {turno_nombre}*\n\n" + 
 generar_resumen_texto(lotes)
                 await bot.send_message(chat_id=uid, text=texto, 
 parse_mode=ParseMode.MARKDOWN)
-
                 # Enviar al grupo si está configurado
                 if CHAT_ID_GRUPO:
                     await enviar_reporte_grupo(bot, CHAT_ID_GRUPO, lotes)
-
                 # Cerrar turno automáticamente
                 db.cerrar_turno(uid, now.isoformat())
                 await bot.send_message(
@@ -445,35 +372,29 @@ automáticamente.*\nEl siguiente registro iniciará un turno nuevo.",
             except Exception as e:
                 logger.error(f"Error en reporte automático para {uid}: 
 {e}")
-
-    # Turno 1 → reporte a las 15:00
+    # Turno 1 -> reporte a las 15:00
     scheduler.add_job(
         reporte_automatico,
         trigger="cron", hour=15, minute=0, timezone=TIMEZONE,
         args=[application.bot, "Turno 1 (07:00–16:00)"],
         id="reporte_turno1", replace_existing=True
     )
-
-    # Turno 2 → reporte a las 22:00
+    # Turno 2 -> reporte a las 22:00
     scheduler.add_job(
         reporte_automatico,
         trigger="cron", hour=22, minute=0, timezone=TIMEZONE,
         args=[application.bot, "Turno 2 (16:00–23:00)"],
         id="reporte_turno2", replace_existing=True
     )
-
-    # Turno 3 → reporte a las 05:00
+    # Turno 3 -> reporte a las 05:00
     scheduler.add_job(
         reporte_automatico,
         trigger="cron", hour=5, minute=0, timezone=TIMEZONE,
         args=[application.bot, "Turno 3 (23:00–07:00)"],
         id="reporte_turno3", replace_existing=True
     )
-
     logger.info("Bot iniciado ✅ — Reportes automáticos programados: 
 05:00, 15:00, 22:00")
-
-
 def main():
     app = (
         Application.builder()
@@ -481,7 +402,6 @@ def main():
         .post_init(post_init)
         .build()
     )
-
     app.add_handler(CommandHandler("start",           cmd_start))
     app.add_handler(CommandHandler("ayuda",           cmd_ayuda))
     app.add_handler(CommandHandler("lote",            cmd_lote))
@@ -494,10 +414,7 @@ def main():
     app.add_handler(CommandHandler("recordatorio",    cmd_recordatorio))
     app.add_handler(CommandHandler("cancelar_alerta", cmd_cancelar_alerta))
     app.add_handler(MessageHandler(filters.VOICE,     handle_voice))
-
     logger.info("🤖 Escuchando mensajes...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
 if __name__ == "__main__":
     main()
