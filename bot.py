@@ -348,14 +348,12 @@ async def post_init(application):
                 if not lotes:
                     await bot.send_message(
                         chat_id=uid,
-                        text=f"⏰ *Reporte automático — 
-{turno_nombre}*\n\nNo hay lotes registrados en este turno.",
+                        text=f"⏰ *Reporte automatico - {turno_nombre}*\n\nNo hay lotes registrados en este turno.",
                         parse_mode=ParseMode.MARKDOWN
                     )
                     continue
                 # Enviar resumen al usuario
-                texto = f"⏰ *Reporte automático — {turno_nombre}*\n\n" + 
-generar_resumen_texto(lotes)
+                texto = f"⏰ *Reporte automatico - {turno_nombre}*\n\n" + generar_resumen_texto(lotes)
                 await bot.send_message(chat_id=uid, text=texto, 
 parse_mode=ParseMode.MARKDOWN)
                 # Enviar al grupo si está configurado
@@ -365,13 +363,11 @@ parse_mode=ParseMode.MARKDOWN)
                 db.cerrar_turno(uid, now.isoformat())
                 await bot.send_message(
                     chat_id=uid,
-                    text=f"✅ *{turno_nombre} cerrado 
-automáticamente.*\nEl siguiente registro iniciará un turno nuevo.",
+                    text=f"✅ *{turno_nombre} cerrado automáticamente.*\nEl siguiente registro iniciará un turno nuevo.",
                     parse_mode=ParseMode.MARKDOWN
                 )
             except Exception as e:
-                logger.error(f"Error en reporte automático para {uid}: 
-{e}")
+                logger.error(f"Error en reporte automático para {uid}: {e}")
     # Turno 1 -> reporte a las 15:00
     scheduler.add_job(
         reporte_automatico,
@@ -393,8 +389,7 @@ automáticamente.*\nEl siguiente registro iniciará un turno nuevo.",
         args=[application.bot, "Turno 3 (23:00–07:00)"],
         id="reporte_turno3", replace_existing=True
     )
-    logger.info("Bot iniciado ✅ — Reportes automáticos programados: 
-05:00, 15:00, 22:00")
+    logger.info("Bot iniciado ✅ — Reportes automáticos programados: 05:00, 15:00, 22:00")
 def main():
     app = (
         Application.builder()
