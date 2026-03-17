@@ -6,10 +6,13 @@ envía al grupo de Telegram y exporta a Excel.
 
 import tempfile
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime
 from typing import List, Dict
 from telegram import Bot
 from telegram.constants import ParseMode
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 
 # ── Resumen de texto (mismo formato que el script original) ──────────────────
@@ -76,13 +79,6 @@ def exportar_excel(lotes: List[Dict], desde: date, hasta: date) -> str:
       2. Resumen — agrupado por producto/presentación/mercado
     Devuelve la ruta del archivo temporal generado.
     """
-    try:
-        import openpyxl
-        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-        from openpyxl.utils import get_column_letter
-    except ImportError:
-        raise ImportError("Instala openpyxl: pip install openpyxl")
-
     wb = openpyxl.Workbook()
 
     # ── Colores y estilos ──
@@ -142,9 +138,9 @@ def exportar_excel(lotes: List[Dict], desde: date, hasta: date) -> str:
 
     for i, lote in enumerate(lotes):
         row_num = i + 3
-        ts      = lote["timestamp"][:19]
-        fecha   = ts[:10]
-        hora    = ts[11:16]
+        dt      = datetime.fromisoformat(lote["timestamp"])
+        fecha   = dt.date().isoformat()
+        hora    = dt.strftime("%H:%M")
         alt     = (i % 2 == 1)
 
         ws1.cell(row=row_num, column=1,  value=lote["id"])

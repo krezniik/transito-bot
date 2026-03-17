@@ -9,6 +9,8 @@ import logging
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 import asyncio
+import tempfile
+from pathlib import Path
 from dotenv import load_dotenv
 from telegram import Update, BotCommand
 from telegram.ext import (
@@ -136,8 +138,6 @@ async def cmd_lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -- Nota de voz ---------------------------------------------------------------
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
-    import tempfile
-    from pathlib import Path
     await update.effective_chat.send_action("typing")
     now = datetime.now(TZ)
     voice_file = await update.message.voice.get_file()

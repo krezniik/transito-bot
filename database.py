@@ -86,7 +86,7 @@ class Database:
     # ── Lotes ─────────────────────────────────────────────────────────────────
     def guardar_lote(self, user_id: int, datos: dict, timestamp: str) -> str:
         turno_id = self._get_o_crear_turno(user_id, timestamp)
-        lote_id  = str(uuid.uuid4())[:6].upper()
+        lote_id  = str(uuid.uuid4())[:8].upper()
         with self._conn() as conn:
             conn.execute("""
                 INSERT INTO lotes
