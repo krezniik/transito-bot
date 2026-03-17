@@ -69,7 +69,8 @@ Conversiones OBLIGATORIAS:
 - pin: "pequeño","pequeno","chico","P" → "p" | "grande","gran","G" → "g"
 - mercado: "local","RTCA","L","guatemala" → "L" | "exportacion","FDA","E","export" → "E"
 - maquina_raw: "m1","mespack1","llenadora 1" → "m1" | "m2" → "m2" | "m3" → "m3" | "chub" → "chub"
-- Si Mespack 3 o Chub, pin siempre es "g"
+- Si Mespack 3 o Chub con presentacion distinta de "8" y "14", pin siempre es "g"
+- Si Mespack 3 con presentacion "8" o "14": extraer pin del texto; si no se menciona, dejar pin vacío ""
 - Si falta dato, error: "Falta: <campo>"
 """
 
