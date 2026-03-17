@@ -12,15 +12,15 @@ import asyncio
 import tempfile
 from pathlib import Path
 from dotenv import load_dotenv
-from telegram import Update, BotCommand
+from telegram import Update, BotCommand, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
     filters, ContextTypes, ConversationHandler
 )
 from telegram.constants import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from database import Database
-from lote_parser import parsear_lote_con_claude
+from lote_parser import parsear_lote_con_claude, calcular_cajas
 from reporter import generar_resumen_texto, enviar_reporte_grupo, exportar_excel
 from recordatorio import programar_recordatorio, cancelar_recordatorio_activo
 load_dotenv()
@@ -42,6 +42,27 @@ scheduler = AsyncIOScheduler(timezone=TIMEZONE)
 import anthropic, openai
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 openai_client    = openai.OpenAI(api_key=OPENAI_API_KEY)
+# -- Helpers -------------------------------------------------------------------
+def _keyboard_pin() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("Pin pequeño", callback_data="pin:p"),
+        InlineKeyboardButton("Pin grande",  callback_data="pin:g"),
+    ]])
+
+def _texto_confirmacion_lote(d: dict, lote_id: str) -> str:
+    return (
+        f"✅ *Lote registrado* — ID `{lote_id}`\n\n"
+        f"⚙️ {d['maquina']}\n"
+        f"• Canastas: {d['canastas']}\n"
+        f"• Cajas/canasta: {d['cajas_por_canasta']}\n"
+        f"• Presentación: {d['presentacion']}\n"
+        f"• Producto: {d['producto_legible']}\n"
+        f"• Pin: {d['pin_legible']}\n"
+        f"• Mercado: {d['mercado_legible']}\n"
+        f"• *Cajas en tránsito: {int(d['cajas_en_transito']):,}* 📦\n\n"
+        "Usa /resumen para ver el total del turno."
+    )
+
 # -- Seguridad -----------------------------------------------------------------
 def autorizado(update: Update) -> bool:
     if not ALLOWED_USERS:
@@ -119,17 +140,41 @@ async def cmd_lotes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.effective_chat.send_action("typing")
 
-    exitosos = []
-    fallidos = []
+    exitosos  = []
+    pendientes = []
+    fallidos  = []
     for linea in lineas:
         resultado = await parsear_lote_con_claude(anthropic_client, linea, now)
         if resultado.get("error"):
             fallidos.append({"linea": linea, "error": resultado["error"]})
+        elif resultado.get("requiere_confirmacion_pin"):
+            pendientes.append({"datos": resultado, "timestamp": now.isoformat(), "user_id": user_id, "linea": linea})
         else:
             lote_id = db.guardar_lote(user_id=user_id, datos=resultado, timestamp=now.isoformat())
             exitosos.append({"lote_id": lote_id, "datos": resultado})
 
-    respuesta = f"📦 *{len(exitosos)}/{len(lineas)} lotes registrados*\n\n"
+    if pendientes:
+        context.user_data["cola_pin"]      = pendientes
+        context.user_data["lotes_resumen"] = exitosos
+        context.user_data["lotes_fallidos"] = fallidos
+        primero = pendientes[0]["datos"]
+        resumen_previo = ""
+        if exitosos:
+            resumen_previo = "".join(
+                f"✅ `{r['lote_id']}` — {r['datos']['maquina']} · *{int(r['datos']['cajas_en_transito']):,} cajas*\n"
+                for r in exitosos
+            ) + "\n"
+        await update.message.reply_text(
+            resumen_previo +
+            f"⚙️ *{primero['maquina']}* · {primero['canastas']} canastas · {primero['presentacion']} · {primero['producto_legible']}\n"
+            "¿Qué pin usa este lote?",
+            reply_markup=_keyboard_pin(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    total = len(exitosos) + len(fallidos)
+    respuesta = f"📦 *{len(exitosos)}/{total} lotes registrados*\n\n"
     for r in exitosos:
         d = r["datos"]
         respuesta += (
@@ -141,7 +186,6 @@ async def cmd_lotes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for r in fallidos:
             respuesta += f"❌ `{r['linea']}` — {r['error']}\n"
     respuesta += "\nUsa /resumen para ver el total del turno."
-
     await update.message.reply_text(respuesta, parse_mode=ParseMode.MARKDOWN)
 
 # -- /lote ---------------------------------------------------------------------
@@ -162,29 +206,82 @@ async def cmd_lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if resultado.get("error"):
         await update.message.reply_text(f"❌ {resultado['error']}")
         return
-    # Guardar en BD
+    if resultado.get("requiere_confirmacion_pin"):
+        context.user_data["cola_pin"] = [{"datos": resultado, "timestamp": now.isoformat(), "user_id": user_id}]
+        d = resultado
+        await update.message.reply_text(
+            f"⚙️ *{d['maquina']}* · {d['canastas']} canastas · {d['presentacion']} · {d['producto_legible']}\n"
+            "¿Qué pin usa este lote?",
+            reply_markup=_keyboard_pin(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
     lote_id = db.guardar_lote(user_id=user_id, datos=resultado, timestamp=now.isoformat())
-    maquina       = resultado["maquina"]
-    cajas         = resultado["cajas_en_transito"]
-    presentacion  = resultado["presentacion"]
-    producto_leg  = resultado["producto_legible"]
-    mercado_leg   = resultado["mercado_legible"]
-    pin_leg       = resultado["pin_legible"]
-    c_x_canasta   = resultado["cajas_por_canasta"]
-    canastas      = resultado["canastas"]
-    respuesta = (
-        f"✅ *Lote registrado* — ID `{lote_id}`\n\n"
-        f"⚙️ {maquina}\n"
-        f"• Canastas: {canastas}\n"
-        f"• Cajas/canasta: {c_x_canasta}\n"
-        f"• Presentación: {presentacion}\n"
-        f"• Producto: {producto_leg}\n"
-        f"• Pin: {pin_leg}\n"
-        f"• Mercado: {mercado_leg}\n"
-        f"• *Cajas en tránsito: {int(cajas):,}* 📦\n\n"
-        f"Usa /resumen para ver el total del turno."
+    await update.message.reply_text(
+        _texto_confirmacion_lote(resultado, lote_id),
+        parse_mode=ParseMode.MARKDOWN
     )
-    await update.message.reply_text(respuesta, parse_mode=ParseMode.MARKDOWN)
+# -- Confirmación de pin (inline keyboard) ------------------------------------
+async def confirmar_pin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    pin  = query.data.split(":")[1]  # "p" o "g"
+    cola = context.user_data.get("cola_pin", [])
+    if not cola:
+        await query.edit_message_text("❌ No hay lote pendiente de confirmación.")
+        return
+
+    pendiente = cola.pop(0)
+    d = pendiente["datos"]
+    d["pin"]             = pin
+    d["pin_legible"]     = "Grande" if pin == "g" else "Pequeño"
+    d["cajas_por_canasta"] = calcular_cajas(d["producto"], d["presentacion_raw"], pin)
+    d["cajas_en_transito"] = d["canastas"] * d["cajas_por_canasta"]
+    lote_id = db.guardar_lote(user_id=pendiente["user_id"], datos=d, timestamp=pendiente["timestamp"])
+
+    if cola:
+        # Quedan más lotes pendientes de pin
+        context.user_data["cola_pin"] = cola
+        if "lotes_resumen" in context.user_data:
+            context.user_data["lotes_resumen"].append({"lote_id": lote_id, "datos": d})
+        siguiente = cola[0]["datos"]
+        await query.edit_message_text(
+            f"✅ `{lote_id}` guardado — *{int(d['cajas_en_transito']):,} cajas*\n\n"
+            f"⚙️ *{siguiente['maquina']}* · {siguiente['canastas']} canastas · "
+            f"{siguiente['presentacion']} · {siguiente['producto_legible']}\n"
+            "¿Qué pin usa este lote?",
+            reply_markup=_keyboard_pin(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    # No quedan pendientes — armar respuesta final
+    if "lotes_resumen" in context.user_data:
+        # Flujo /lotes
+        todos   = context.user_data.pop("lotes_resumen") + [{"lote_id": lote_id, "datos": d}]
+        fallidos = context.user_data.pop("lotes_fallidos", [])
+        context.user_data.pop("cola_pin", None)
+        total    = len(todos) + len(fallidos)
+        respuesta = f"📦 *{len(todos)}/{total} lotes registrados*\n\n"
+        for r in todos:
+            rd = r["datos"]
+            respuesta += (
+                f"✅ `{r['lote_id']}` — {rd['maquina']} · {rd['canastas']} canastas · "
+                f"{rd['presentacion']} · {rd['producto_legible']} · *{int(rd['cajas_en_transito']):,} cajas*\n"
+            )
+        if fallidos:
+            respuesta += "\n*No se pudieron registrar:*\n"
+            for r in fallidos:
+                respuesta += f"❌ `{r['linea']}` — {r['error']}\n"
+        respuesta += "\nUsa /resumen para ver el total del turno."
+    else:
+        # Flujo /lote individual
+        context.user_data.pop("cola_pin", None)
+        respuesta = _texto_confirmacion_lote(d, lote_id)
+
+    await query.edit_message_text(respuesta, parse_mode=ParseMode.MARKDOWN)
+
 # -- Nota de voz ---------------------------------------------------------------
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
@@ -453,6 +550,7 @@ def main():
     app.add_handler(CommandHandler("recordatorio",    cmd_recordatorio))
     app.add_handler(CommandHandler("cancelar_alerta", cmd_cancelar_alerta))
     app.add_handler(MessageHandler(filters.VOICE,     handle_voice))
+    app.add_handler(CallbackQueryHandler(confirmar_pin, pattern="^pin:"))
     logger.info("🤖 Escuchando mensajes...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 if __name__ == "__main__":

@@ -93,10 +93,14 @@ def humanizar(datos: dict) -> dict:
     canastas     = datos.get("canastas", 0)
     mercado      = datos.get("mercado", "L")
 
-    # Pin: forzar grande para Mespack 3 y Chub
+    # Pin: forzar grande para Mespack 3 y Chub, excepto M3 con 8oz o 14oz
     pin = datos.get("pin", "p")
+    requiere_confirmacion_pin = False
     if maquina in MAQUINAS_PIN_GRANDE:
-        pin = "g"
+        if maquina == "Mespack 3" and presentacion in ("8", "14"):
+            requiere_confirmacion_pin = True
+        else:
+            pin = "g"
 
     cajas_por_canasta = calcular_cajas(producto, presentacion, pin)
     if cajas_por_canasta is None:
@@ -118,9 +122,10 @@ def humanizar(datos: dict) -> dict:
         "pin_legible":       "Grande" if pin == "g" else "Pequeño",
         "mercado":           mercado,
         "mercado_legible":   "RTCA 🇬🇹" if mercado == "L" else "FDA 🇺🇸",
-        "cajas_por_canasta": cajas_por_canasta,
-        "cajas_en_transito": cajas_en_transito,
-        "error":             None,
+        "cajas_por_canasta":        cajas_por_canasta,
+        "cajas_en_transito":        cajas_en_transito,
+        "error":                    None,
+        "requiere_confirmacion_pin": requiere_confirmacion_pin,
     }
 
 
