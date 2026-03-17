@@ -84,7 +84,7 @@ def calcular_cajas(producto: str, presentacion: str, pin: str) -> float | None:
     return TABLA.get(key)
 
 
-def humanizar(datos: dict) -> dict:
+def humanizar(datos: dict, pin_explicito: bool = False) -> dict:
     """Agrega campos legibles y calcula totales al dict de datos del lote."""
     maquina_raw  = datos.get("maquina_raw", "").lower().strip()
     maquina      = MAQUINAS_VALIDAS.get(maquina_raw, maquina_raw.title())
@@ -94,11 +94,12 @@ def humanizar(datos: dict) -> dict:
     mercado      = datos.get("mercado", "L")
 
     # Pin: forzar grande para Mespack 3 y Chub, excepto M3 con 8oz o 14oz
-    pin = datos.get("pin", "p")
+    pin = datos.get("pin") or "p"
     requiere_confirmacion_pin = False
     if maquina in MAQUINAS_PIN_GRANDE:
         if maquina == "Mespack 3" and presentacion in ("8", "14"):
-            requiere_confirmacion_pin = True
+            if not pin_explicito:
+                requiere_confirmacion_pin = True
         else:
             pin = "g"
 
@@ -155,4 +156,5 @@ async def parsear_lote_con_claude(client, texto: str, now: datetime) -> Dict:
     if parsed.get("error"):
         return {"error": parsed["error"]}
 
-    return humanizar(parsed)
+    pin_explicito = bool(parsed.get("pin"))
+    return humanizar(parsed, pin_explicito=pin_explicito)
