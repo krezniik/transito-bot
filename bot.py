@@ -54,6 +54,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 *Bot de Tránsito* listo.\n\n"
         "*Comandos principales:*\n"
         "`/lote` — Registrar un lote\n"
+        "`/lotes` — Registrar varios lotes a la vez\n"
         "`/resumen` — Ver tránsito del turno actual\n"
         "`/enviar` — Enviar resumen al grupo\n"
         "`/reporte` — Consultar historial\n"
@@ -71,6 +72,10 @@ async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "*Registrar un lote:*\n"
         "`/lote Mespack1 canastas:12 pres:8 producto:N pin:P mercado:L`\n"
         "También puedes enviar una *nota de voz* describiendo el lote.\n\n"
+        "*Registrar varios lotes a la vez:*\n"
+        "`/lotes` y luego una línea por lote:\n"
+        "`m1 canastas:12 pres:8 producto:N pin:P mercado:L`\n"
+        "`m2 canastas:8 pres:14 producto:R pin:G mercado:E`\n\n"
         "*Abreviaciones válidas:*\n"
         "• Máquinas: `m1` `m2` `m3` `chub`\n"
         "• Presentaciones: `4` `8` `14` `16` `28` `35` `40` `80` `4lbs`\n"
@@ -94,6 +99,51 @@ async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/cancelar_alerta` — Desactivar\n"
     )
     await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
+# -- /lotes --------------------------------------------------------------------
+async def cmd_lotes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not autorizado(update): return
+    user_id = update.effective_user.id
+    now     = datetime.now(TZ)
+
+    texto_completo = update.message.text or ""
+    lineas = [l.strip() for l in texto_completo.split("\n")[1:] if l.strip()]
+
+    if not lineas:
+        await update.message.reply_text(
+            "⚠️ Escribe `/lotes` y en las siguientes líneas un lote por línea:\n\n"
+            "`m1 canastas:12 pres:8 producto:N pin:P mercado:L`\n"
+            "`m2 canastas:8 pres:14 producto:R pin:G mercado:E`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    await update.effective_chat.send_action("typing")
+
+    exitosos = []
+    fallidos = []
+    for linea in lineas:
+        resultado = await parsear_lote_con_claude(anthropic_client, linea, now)
+        if resultado.get("error"):
+            fallidos.append({"linea": linea, "error": resultado["error"]})
+        else:
+            lote_id = db.guardar_lote(user_id=user_id, datos=resultado, timestamp=now.isoformat())
+            exitosos.append({"lote_id": lote_id, "datos": resultado})
+
+    respuesta = f"📦 *{len(exitosos)}/{len(lineas)} lotes registrados*\n\n"
+    for r in exitosos:
+        d = r["datos"]
+        respuesta += (
+            f"✅ `{r['lote_id']}` — {d['maquina']} · {d['canastas']} canastas · "
+            f"{d['presentacion']} · {d['producto_legible']} · *{int(d['cajas_en_transito']):,} cajas*\n"
+        )
+    if fallidos:
+        respuesta += "\n*No se pudieron registrar:*\n"
+        for r in fallidos:
+            respuesta += f"❌ `{r['linea']}` — {r['error']}\n"
+    respuesta += "\nUsa /resumen para ver el total del turno."
+
+    await update.message.reply_text(respuesta, parse_mode=ParseMode.MARKDOWN)
+
 # -- /lote ---------------------------------------------------------------------
 async def cmd_lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
@@ -318,6 +368,7 @@ async def post_init(application):
     await application.bot.set_my_commands([
         BotCommand("start",           "Iniciar el bot"),
         BotCommand("lote",            "Registrar un lote"),
+        BotCommand("lotes",           "Registrar varios lotes a la vez"),
         BotCommand("resumen",         "Ver tránsito del turno"),
         BotCommand("enviar",          "Enviar resumen al grupo"),
         BotCommand("nuevo_turno",     "Cerrar turno y empezar de cero"),
@@ -392,6 +443,7 @@ def main():
     app.add_handler(CommandHandler("start",           cmd_start))
     app.add_handler(CommandHandler("ayuda",           cmd_ayuda))
     app.add_handler(CommandHandler("lote",            cmd_lote))
+    app.add_handler(CommandHandler("lotes",           cmd_lotes))
     app.add_handler(CommandHandler("resumen",         cmd_resumen))
     app.add_handler(CommandHandler("enviar",          cmd_enviar))
     app.add_handler(CommandHandler("nuevo_turno",     cmd_nuevo_turno))
