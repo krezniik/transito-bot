@@ -64,8 +64,7 @@ Estructura exacta:
 
 Conversiones OBLIGATORIAS:
 - presentacion: "8oz","8 oz","ocho onzas" → "8" | "14oz" → "14" | "4lbs","cuatro libras" → "4lbs" | solo el número sin unidad
-- producto: "negro","frijol negro","FND","N" → "N" | "rojo","FRD","R" → "R" | "enteros negros","NE" → "NE" | "enteros rojos","RE" → 
-"RE" | "seda","RS" → "RS"
+- producto: "negro","frijol negro","FND","N" → "N" | "rojo","FRD","R" → "R" | "enteros negros","fne","FNE","NE" → "NE" | "enteros rojos","fre","FRE","RE" → "RE" | "seda","RS" → "RS"
 - pin: "pequeño","pequeno","chico","P" → "p" | "grande","gran","G" → "g"
 - mercado: "local","RTCA","L","guatemala" → "L" | "exportacion","FDA","E","export" → "E"
 - maquina_raw: "m1","mespack1","llenadora 1" → "m1" | "m2" → "m2" | "m3" → "m3" | "chub" → "chub"
