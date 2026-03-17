@@ -46,7 +46,8 @@ def generar_resumen_texto(lotes: List[Dict]) -> str:
         encabezado = f"*{maquina} ({linea_num})*" if linea_num else f"*{maquina}*"
         lineas.append(encabezado)
         for clave, datos in productos.items():
-            lineas.append(f"  {clave} — {datos['cpc']} c/c: {int(datos['cajas']):,} cajas")
+            lineas.append(f"  {clave}")
+            lineas.append(f"  {datos['cpc']} c/c — {int(datos['cajas']):,} cajas")
         lineas.append(f"  _Total: {int(total_maq):,} cajas_\n")
 
     # ── Resumen consolidado (para compartir) ──
