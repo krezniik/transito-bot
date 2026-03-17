@@ -6,6 +6,7 @@ Permite activar una alerta cada X horas para recordar registrar datos.
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from telegram.constants import ParseMode
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ async def _enviar_alerta(bot, user_id: int):
                 "¿Ya registraste los lotes de las llenadores?\n"
                 "Usa /lote para agregar o /resumen para revisar el turno actual."
             ),
-            parse_mode="Markdown"
+            parse_mode=ParseMode.MARKDOWN
         )
     except Exception as e:
         logger.error(f"Error enviando alerta a {user_id}: {e}")

@@ -129,6 +129,7 @@ async def parsear_lote_con_claude(client, texto: str, now: datetime) -> Dict:
     Usa Claude Haiku para extraer los datos del lote desde texto libre.
     Devuelve un dict con todos los campos calculados o {"error": "..."}.
     """
+    raw = ""
     try:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",

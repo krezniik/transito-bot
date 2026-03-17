@@ -6,7 +6,7 @@ recordatorios, historial y exportación a Excel.
 """
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 import asyncio
 from dotenv import load_dotenv
@@ -236,11 +236,9 @@ async def cmd_reporte(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if arg == "hoy":
         fecha = now.date()
     elif arg == "ayer":
-        from datetime import timedelta
         fecha = (now - timedelta(days=1)).date()
     else:
         try:
-            from datetime import date
             fecha = date.fromisoformat(arg)
         except ValueError:
             await update.message.reply_text("❌ Formato de fecha inválido. Usa: `hoy`, `ayer` o `YYYY-MM-DD`", parse_mode=ParseMode.MARKDOWN)
@@ -260,16 +258,13 @@ async def cmd_exportar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if arg == "hoy":
         desde = hasta = now.date()
     elif arg == "ayer":
-        from datetime import timedelta
         d = (now - timedelta(days=1)).date()
         desde = hasta = d
     elif arg == "semana":
-        from datetime import timedelta
         hasta = now.date()
         desde = hasta - timedelta(days=6)
     else:
         try:
-            from datetime import date
             desde = hasta = date.fromisoformat(arg)
         except ValueError:
             await update.message.reply_text("❌ Usa: `hoy`, `ayer`, `semana` o `YYYY-MM-DD`", parse_mode=ParseMode.MARKDOWN)
@@ -280,14 +275,15 @@ async def cmd_exportar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.effective_chat.send_action("upload_document")
     ruta_excel = exportar_excel(lotes, desde, hasta)
-    with open(ruta_excel, "rb") as f:
-        await update.message.reply_document(
-            document=f,
-            filename=f"transito_{desde}_{hasta}.xlsx",
-            caption=f"📊 Reporte de tránsito: {desde} -> {hasta}"
-        )
-    import os
-    os.unlink(ruta_excel)
+    try:
+        with open(ruta_excel, "rb") as f:
+            await update.message.reply_document(
+                document=f,
+                filename=f"transito_{desde}_{hasta}.xlsx",
+                caption=f"📊 Reporte de tránsito: {desde} -> {hasta}"
+            )
+    finally:
+        os.unlink(ruta_excel)
 # -- /recordatorio -------------------------------------------------------------
 async def cmd_recordatorio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
