@@ -382,6 +382,7 @@ parse_mode=ParseMode.MARKDOWN)
     )
     logger.info("Bot iniciado ✅ — Reportes automáticos programados: 05:00, 15:00, 22:00")
 def main():
+    asyncio.set_event_loop(asyncio.new_event_loop())
     app = (
         Application.builder()
         .token(TELEGRAM_TOKEN)
