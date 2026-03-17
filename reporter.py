@@ -16,26 +16,37 @@ from openpyxl.utils import get_column_letter
 
 
 # ── Resumen de texto (mismo formato que el script original) ──────────────────
+LINEA_MAQUINA = {
+    "Mespack 1": "L36",
+    "Mespack 2": "L37",
+    "Mespack 3": "L39",
+    "Chub":      "L46",
+}
+
+
 def generar_resumen_texto(lotes: List[Dict]) -> str:
     """
     Genera el bloque "Tránsito 📋" agrupado por producto + presentación + mercado,
     igual al formato original del script.
     """
     resumen_limpio: dict = defaultdict(float)
-    resumen_maquinas: dict = defaultdict(lambda: defaultdict(float))
+    resumen_maquinas: dict = defaultdict(lambda: defaultdict(lambda: {"cajas": 0.0, "cpc": 0.0}))
 
     for r in lotes:
         clave = f"{r['producto_legible']} {r['presentacion'].lower()} {r['mercado_legible']}"
-        resumen_limpio[clave]                           += r['cajas_en_transito']
-        resumen_maquinas[r['maquina']][clave]           += r['cajas_en_transito']
+        resumen_limpio[clave]                          += r['cajas_en_transito']
+        resumen_maquinas[r['maquina']][clave]["cajas"] += r['cajas_en_transito']
+        resumen_maquinas[r['maquina']][clave]["cpc"]    = r['cajas_por_canasta']
 
     # ── Detalle por máquina ──
     lineas = ["⚙️ *Detalle por llenadora:*\n"]
     for maquina, productos in resumen_maquinas.items():
-        total_maq = sum(productos.values())
-        lineas.append(f"*{maquina}*")
-        for clave, cajas in productos.items():
-            lineas.append(f"  {clave}: {int(cajas):,} cajas")
+        total_maq = sum(d["cajas"] for d in productos.values())
+        linea_num = LINEA_MAQUINA.get(maquina, "")
+        encabezado = f"*{maquina} ({linea_num})*" if linea_num else f"*{maquina}*"
+        lineas.append(encabezado)
+        for clave, datos in productos.items():
+            lineas.append(f"  {clave} — {datos['cpc']} c/c: {int(datos['cajas']):,} cajas")
         lineas.append(f"  _Total: {int(total_maq):,} cajas_\n")
 
     # ── Resumen consolidado (para compartir) ──
