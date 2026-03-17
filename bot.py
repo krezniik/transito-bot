@@ -9,11 +9,6 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import asyncio
-import sys
-if sys.version_info >= (3, 10):
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
 from dotenv import load_dotenv
 from telegram import Update, BotCommand
 from telegram.ext import (
@@ -37,7 +32,7 @@ TELEGRAM_TOKEN    = os.getenv("TELEGRAM_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
 CHAT_ID_GRUPO     = os.getenv("CHAT_ID_GRUPO")          # Grupo donde va el reporte
-ALLOWED_USERS     = set(map(int, os.getenv("ALLOWED_USERS", "").split(","))) if os.getenv("ALLOWED_USERS") else set()
+ALLOWED_USERS     = set(int(u.strip()) for u in os.getenv("ALLOWED_USERS", "").split(",") if u.strip()) if os.getenv("ALLOWED_USERS") else set()
 TIMEZONE          = os.getenv("TIMEZONE", "America/Guatemala")
 TZ                = ZoneInfo(TIMEZONE)
 db        = Database()
@@ -48,7 +43,7 @@ openai_client    = openai.OpenAI(api_key=OPENAI_API_KEY)
 # -- Seguridad -----------------------------------------------------------------
 def autorizado(update: Update) -> bool:
     if not ALLOWED_USERS:
-        return True
+        return False
     return update.effective_user.id in ALLOWED_USERS
 # -- /start --------------------------------------------------------------------
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
