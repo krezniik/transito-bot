@@ -21,7 +21,7 @@ from telegram.constants import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from database import Database
 from lote_parser import parsear_lote_con_claude, calcular_cajas
-from reporter import generar_resumen_texto, enviar_reporte_grupo, exportar_excel
+from reporter import generar_resumen_texto, enviar_reporte_grupo, exportar_excel, LINEA_MAQUINA
 from recordatorio import programar_recordatorio, cancelar_recordatorio_activo
 load_dotenv()
 logging.basicConfig(
@@ -49,10 +49,14 @@ def _keyboard_pin() -> InlineKeyboardMarkup:
         InlineKeyboardButton("Pin grande",  callback_data="pin:g"),
     ]])
 
+def _nombre_maquina(maquina: str) -> str:
+    linea = LINEA_MAQUINA.get(maquina, "")
+    return f"{maquina} ({linea})" if linea else maquina
+
 def _texto_confirmacion_lote(d: dict, lote_id: str) -> str:
     return (
         f"✅ *Lote registrado* — ID `{lote_id}`\n\n"
-        f"⚙️ {d['maquina']}\n"
+        f"⚙️ {_nombre_maquina(d['maquina'])}\n"
         f"• Canastas: {d['canastas']}\n"
         f"• Cajas/canasta: {d['cajas_por_canasta']}\n"
         f"• Presentación: {d['presentacion']}\n"
@@ -317,7 +321,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cajas = resultado["cajas_en_transito"]
     respuesta = (
         f"✅ *Lote registrado desde voz* — ID `{lote_id}`\n\n"
-        f"⚙️ {resultado['maquina']}\n"
+        f"⚙️ {_nombre_maquina(resultado['maquina'])}\n"
         f"• Canastas: {resultado['canastas']} × {resultado['cajas_por_canasta']} = *{int(cajas):,} cajas* 📦\n"
         f"• {resultado['presentacion']} | {resultado['producto_legible']} | {resultado['mercado_legible']}\n\n"
         "Usa /resumen para ver el total del turno."
