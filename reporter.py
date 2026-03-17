@@ -51,14 +51,14 @@ def generar_resumen_texto(lotes: List[Dict]) -> str:
         lineas.append(f"  _Total: {int(total_maq):,} cajas_\n")
 
     # ── Resumen consolidado (para compartir) ──
-    lineas.append("───────────────────")
+    lineas.append("───────────────")
     lineas.append("Tránsito 📋\n")
     for clave, total in resumen_limpio.items():
         lineas.append(f"{clave}")
         lineas.append(f"{int(total):,} cajas 📦\n")
 
     total_general = sum(resumen_limpio.values())
-    lineas.append(f"───────────────────")
+    lineas.append(f"───────────────")
     lineas.append(f"*Total general: {int(total_general):,} cajas*")
 
     return "\n".join(lineas)
@@ -83,7 +83,7 @@ async def enviar_reporte_grupo(bot: Bot, chat_id: str, lotes: List[Dict]):
     await bot.send_message(chat_id=chat_id, text=mensaje)
 
 
-# ── Exportación a Excel ───────────────────────────────────────────────────────
+# ── Exportación a Excel ───────────────────────────────────────────────
 def exportar_excel(lotes: List[Dict], desde: date, hasta: date) -> str:
     """
     Genera un archivo Excel con dos hojas:
