@@ -21,7 +21,7 @@ from telegram.constants import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from database import Database
 from lote_parser import parsear_lote_con_claude, calcular_cajas
-from reporter import generar_resumen_texto, enviar_reporte_grupo, exportar_excel, LINEA_MAQUINA
+from reporter import generar_resumen_texto, enviar_reporte_grupo, exportar_excel, LINEA_MAQUINA, siguiente_hora_reporte
 from recordatorio import programar_recordatorio, cancelar_recordatorio_activo
 load_dotenv()
 logging.basicConfig(
@@ -86,6 +86,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/exportar` — Descargar Excel\n"
         "`/recordatorio` — Activar alertas periódicas\n"
         "`/cancelar_alerta` — Desactivar alertas\n"
+        "`/proyeccion` — Estimar canastas hasta el cierre\n"
         "`/ayuda` — Ver guía completa\n"
     )
     await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
@@ -121,7 +122,10 @@ async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/exportar 2025-02-20`\n\n"
         "*Recordatorios:*\n"
         "`/recordatorio 2` — Alerta cada 2 horas\n"
-        "`/cancelar_alerta` — Desactivar\n"
+        "`/cancelar_alerta` — Desactivar\n\n"
+        "*Proyección:*\n"
+        "`/proyeccion 80` — Estima 80 canastas adicionales hasta el cierre de turno\n"
+        "Aparece en el /resumen como _Proyectado a HH:MM_\n"
     )
     await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
 # -- /lotes --------------------------------------------------------------------
@@ -331,11 +335,14 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
+    now     = datetime.now(TZ)
     lotes   = db.get_lotes_turno_activo(user_id)
     if not lotes:
         await update.message.reply_text("📭 No hay lotes registrados en el turno actual.\nUsa /lote para agregar uno.")
         return
-    texto = generar_resumen_texto(lotes)
+    canastas_est = db.get_proyeccion(user_id)
+    hora_proy    = siguiente_hora_reporte(now) if canastas_est else None
+    texto = generar_resumen_texto(lotes, canastas_estimadas=canastas_est, hora_proyeccion=hora_proy)
     await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
 # -- /enviar -------------------------------------------------------------------
 async def cmd_enviar(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -455,6 +462,33 @@ async def cmd_recordatorio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Usa /cancelar\\_alerta para desactivarla.",
         parse_mode=ParseMode.MARKDOWN
     )
+# -- /proyeccion ---------------------------------------------------------------
+async def cmd_proyeccion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not autorizado(update): return
+    user_id = update.effective_user.id
+    now     = datetime.now(TZ)
+
+    if not context.args or not context.args[0].isdigit():
+        hora = siguiente_hora_reporte(now)
+        canastas_actuales = db.get_proyeccion(user_id)
+        estado = f"\nEstimación actual: *{canastas_actuales} canastas*" if canastas_actuales else ""
+        await update.message.reply_text(
+            f"📈 Uso: `/proyeccion <canastas>`\n"
+            f"Ingresa las canastas estimadas que se llenarán hasta las *{hora}*."
+            + estado,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    canastas = int(context.args[0])
+    hora = siguiente_hora_reporte(now)
+    db.guardar_proyeccion(user_id, canastas)
+    await update.message.reply_text(
+        f"✅ Proyección guardada: *{canastas} canastas* estimadas hasta las *{hora}*.\n"
+        "Se mostrará en el /resumen.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
 # -- /cancelar_alerta ---------------------------------------------------------
 async def cmd_cancelar_alerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
@@ -478,6 +512,7 @@ async def post_init(application):
         BotCommand("exportar",        "Descargar Excel"),
         BotCommand("recordatorio",    "Activar alerta periódica"),
         BotCommand("cancelar_alerta", "Desactivar alerta"),
+        BotCommand("proyeccion",      "Guardar canastas estimadas al cierre"),
         BotCommand("ayuda",           "Guía completa"),
     ])
     scheduler.start()
@@ -496,7 +531,9 @@ async def post_init(application):
                     )
                     continue
                 # Enviar resumen al usuario
-                texto = f"⏰ *Reporte automatico - {turno_nombre}*\n\n" + generar_resumen_texto(lotes)
+                canastas_est = db.get_proyeccion(uid)
+                hora_proy    = siguiente_hora_reporte(now) if canastas_est else None
+                texto = f"⏰ *Reporte automatico - {turno_nombre}*\n\n" + generar_resumen_texto(lotes, canastas_estimadas=canastas_est, hora_proyeccion=hora_proy)
                 await bot.send_message(chat_id=uid, text=texto, 
 parse_mode=ParseMode.MARKDOWN)
                 # Enviar al grupo si está configurado
@@ -553,6 +590,7 @@ def main():
     app.add_handler(CommandHandler("exportar",        cmd_exportar))
     app.add_handler(CommandHandler("recordatorio",    cmd_recordatorio))
     app.add_handler(CommandHandler("cancelar_alerta", cmd_cancelar_alerta))
+    app.add_handler(CommandHandler("proyeccion",      cmd_proyeccion))
     app.add_handler(MessageHandler(filters.VOICE,     handle_voice))
     app.add_handler(CallbackQueryHandler(confirmar_pin, pattern="^pin:"))
     logger.info("🤖 Escuchando mensajes...")

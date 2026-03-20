@@ -26,13 +26,20 @@ class Database:
         with self._conn() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS turnos (
-                    id          TEXT PRIMARY KEY,
-                    user_id     INTEGER NOT NULL,
-                    abierto     INTEGER DEFAULT 1,
-                    creado_en   TEXT NOT NULL,
-                    cerrado_en  TEXT
+                    id                  TEXT PRIMARY KEY,
+                    user_id             INTEGER NOT NULL,
+                    abierto             INTEGER DEFAULT 1,
+                    creado_en           TEXT NOT NULL,
+                    cerrado_en          TEXT,
+                    canastas_estimadas  INTEGER
                 )
             """)
+            # Migración: agregar columna si no existe (DBs anteriores)
+            try:
+                conn.execute("ALTER TABLE turnos ADD COLUMN canastas_estimadas INTEGER")
+                conn.commit()
+            except Exception:
+                pass  # columna ya existe
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS lotes (
                     id                TEXT PRIMARY KEY,
@@ -140,6 +147,25 @@ class Database:
                 (user_id, fecha)
             ).fetchall()
         return [dict(r) for r in rows]
+
+    # ── Proyección ────────────────────────────────────────────────────────────
+    def guardar_proyeccion(self, user_id: int, canastas_estimadas: int):
+        """Guarda la estimación de canastas adicionales en el turno activo."""
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE turnos SET canastas_estimadas=? WHERE user_id=? AND abierto=1",
+                (canastas_estimadas, user_id)
+            )
+            conn.commit()
+
+    def get_proyeccion(self, user_id: int) -> Optional[int]:
+        """Devuelve las canastas_estimadas del turno activo, o None si no hay estimación."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT canastas_estimadas FROM turnos WHERE user_id=? AND abierto=1 ORDER BY creado_en DESC LIMIT 1",
+                (user_id,)
+            ).fetchone()
+        return row["canastas_estimadas"] if row else None
 
     def get_lotes_rango(self, user_id: int, desde: str, hasta: str) -> List[Dict]:
         with self._conn() as conn:

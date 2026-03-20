@@ -7,7 +7,7 @@ envía al grupo de Telegram y exporta a Excel.
 import tempfile
 from collections import defaultdict
 from datetime import date, datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
 from telegram import Bot
 from telegram.constants import ParseMode
 import openpyxl
@@ -24,10 +24,28 @@ LINEA_MAQUINA = {
 }
 
 
-def generar_resumen_texto(lotes: List[Dict]) -> str:
+def siguiente_hora_reporte(now: datetime) -> str:
+    """Devuelve la hora del próximo reporte de turno (05:00, 15:00 o 22:00)."""
+    h = now.hour
+    if h < 5:
+        return "05:00"
+    elif h < 15:
+        return "15:00"
+    elif h < 22:
+        return "22:00"
+    else:
+        return "05:00"
+
+
+def generar_resumen_texto(
+    lotes: List[Dict],
+    canastas_estimadas: Optional[int] = None,
+    hora_proyeccion: Optional[str] = None,
+) -> str:
     """
     Genera el bloque "Tránsito 📋" agrupado por producto + presentación + mercado,
     igual al formato original del script.
+    Si se pasan canastas_estimadas y hora_proyeccion, agrega el dato proyectado.
     """
     resumen_limpio: dict = defaultdict(float)
     resumen_maquinas: dict = defaultdict(lambda: defaultdict(lambda: {"cajas": 0.0, "cpc": 0.0}))
@@ -59,7 +77,20 @@ def generar_resumen_texto(lotes: List[Dict]) -> str:
 
     total_general = sum(resumen_limpio.values())
     lineas.append(f"───────────────")
-    lineas.append(f"*Total general: {int(total_general):,} cajas*")
+    lineas.append(f"*Dato actual: {int(total_general):,} cajas*")
+
+    if canastas_estimadas is not None and hora_proyeccion:
+        # Promedio ponderado de cajas/canasta del turno actual
+        total_canastas = sum(l["canastas"] for l in lotes)
+        if total_canastas > 0:
+            promedio_cpc = sum(l["canastas"] * l["cajas_por_canasta"] for l in lotes) / total_canastas
+        else:
+            promedio_cpc = 0
+        cajas_proyectadas = total_general + canastas_estimadas * promedio_cpc
+        lineas.append(
+            f"📈 *Proyectado a {hora_proyeccion}: {int(cajas_proyectadas):,} cajas*"
+            f" _({canastas_estimadas} canastas est.)_"
+        )
 
     return "\n".join(lineas)
 
