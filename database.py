@@ -8,7 +8,8 @@ import uuid
 from pathlib import Path
 from typing import List, Dict, Optional
 
-DB_PATH = Path(__file__).parent / "transito.db"
+_PERSISTENT = Path("/data")
+DB_PATH = _PERSISTENT / "transito.db" if _PERSISTENT.exists() else Path(__file__).parent / "transito.db"
 
 
 class Database:

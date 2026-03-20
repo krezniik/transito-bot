@@ -5,6 +5,10 @@ services:
     pythonVersion: "3.11"
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
+    disk:
+      name: transito-data
+      mountPath: /data
+      sizeGB: 1
     envVars:
       - key: TELEGRAM_TOKEN
         sync: false
