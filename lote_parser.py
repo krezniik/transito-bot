@@ -64,7 +64,13 @@ Estructura exacta:
 
 Conversiones OBLIGATORIAS:
 - presentacion: "8oz","8 oz","ocho onzas" → "8" | "14oz" → "14" | "4lbs","cuatro libras" → "4lbs" | solo el número sin unidad
-- producto: "negro","frijol negro","FND","N" → "N" | "rojo","FRD","R" → "R" | "enteros negros","fne","FNE","NE" → "NE" | "enteros rojos","fre","FRE","RE" → "RE" | "seda","RS" → "RS"
+- producto — DISTINGUIR CON EXACTITUD (son productos distintos):
+    "negro","frijol negro","fnd","FND","N"        → "N"  (negros regulares, NO enteros)
+    "enteros negros","entero negro","fne","FNE","NE" → "NE" (negros ENTEROS — solo si dice "entero/s" o "FNE")
+    "rojo","frijol rojo","frd","FRD","R"          → "R"  (rojos regulares)
+    "enteros rojos","entero rojo","fre","FRE","RE" → "RE" (rojos ENTEROS)
+    "seda","RS" → "RS" | "arreglados","NA" → "NA" | "picante","NP" → "NP" | "RP" → "RP"
+    ⚠ CRÍTICO: "FND" → "N" (regular). "FNE" → "NE" (entero). No son lo mismo. Si el texto dice "FND" devuelve "N", no "NE".
 - pin: "pequeño","pequeno","chico","P" → "p" | "grande","gran","G" → "g"
 - mercado: "local","RTCA","L","guatemala" → "L" | "exportacion","FDA","E","export" → "E"
 - maquina_raw: "m1","mespack1","llenadora 1" → "m1" | "m2" → "m2" | "m3" → "m3" | "chub" → "chub"

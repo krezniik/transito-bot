@@ -7,7 +7,7 @@ envía al grupo de Telegram y exporta a Excel.
 import tempfile
 from collections import defaultdict
 from datetime import date, datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
 from telegram import Bot
 from telegram.constants import ParseMode
 import openpyxl
@@ -23,11 +23,38 @@ LINEA_MAQUINA = {
     "Chub":      "L46",
 }
 
+ORDEN_MAQUINAS = ["Mespack 1", "Mespack 2", "Mespack 3", "Chub"]
 
-def generar_resumen_texto(lotes: List[Dict]) -> str:
+
+def _orden_maquina(maquina: str) -> int:
+    try:
+        return ORDEN_MAQUINAS.index(maquina)
+    except ValueError:
+        return len(ORDEN_MAQUINAS)
+
+
+def siguiente_hora_reporte(now: datetime) -> str:
+    """Devuelve la hora del próximo reporte de turno (05:00, 15:00 o 22:00)."""
+    h = now.hour
+    if h < 5:
+        return "05:00"
+    elif h < 15:
+        return "15:00"
+    elif h < 22:
+        return "22:00"
+    else:
+        return "05:00"
+
+
+def generar_resumen_texto(
+    lotes: List[Dict],
+    canastas_estimadas: Optional[int] = None,
+    hora_proyeccion: Optional[str] = None,
+) -> str:
     """
     Genera el bloque "Tránsito 📋" agrupado por producto + presentación + mercado,
     igual al formato original del script.
+    Si se pasan canastas_estimadas y hora_proyeccion, agrega el dato proyectado.
     """
     resumen_limpio: dict = defaultdict(float)
     resumen_maquinas: dict = defaultdict(lambda: defaultdict(lambda: {"cajas": 0.0, "cpc": 0.0}))
@@ -40,7 +67,7 @@ def generar_resumen_texto(lotes: List[Dict]) -> str:
 
     # ── Detalle por máquina ──
     lineas = ["⚙️ *Detalle por llenadora:*\n"]
-    for maquina, productos in resumen_maquinas.items():
+    for maquina, productos in sorted(resumen_maquinas.items(), key=lambda x: _orden_maquina(x[0])):
         total_maq = sum(d["cajas"] for d in productos.values())
         linea_num = LINEA_MAQUINA.get(maquina, "")
         encabezado = f"*{maquina} ({linea_num})*" if linea_num else f"*{maquina}*"
@@ -59,7 +86,20 @@ def generar_resumen_texto(lotes: List[Dict]) -> str:
 
     total_general = sum(resumen_limpio.values())
     lineas.append(f"───────────────")
-    lineas.append(f"*Total general: {int(total_general):,} cajas*")
+    lineas.append(f"*Dato actual: {int(total_general):,} cajas*")
+
+    if canastas_estimadas is not None and hora_proyeccion:
+        # Promedio ponderado de cajas/canasta del turno actual
+        total_canastas = sum(l["canastas"] for l in lotes)
+        if total_canastas > 0:
+            promedio_cpc = sum(l["canastas"] * l["cajas_por_canasta"] for l in lotes) / total_canastas
+        else:
+            promedio_cpc = 0
+        cajas_proyectadas = total_general + canastas_estimadas * promedio_cpc
+        lineas.append(
+            f"📈 *Proyectado a {hora_proyeccion}: {int(cajas_proyectadas):,} cajas*"
+            f" _({canastas_estimadas} canastas est.)_"
+        )
 
     return "\n".join(lineas)
 
@@ -211,7 +251,7 @@ def exportar_excel(lotes: List[Dict], desde: date, hasta: date) -> str:
 
     row_num = 3
     alt = False
-    for (maq, prod, pres, merc), total in sorted(resumen.items()):
+    for (maq, prod, pres, merc), total in sorted(resumen.items(), key=lambda x: (_orden_maquina(x[0][0]), x[0][1:])):
         ws2.cell(row=row_num, column=1, value=maq)
         ws2.cell(row=row_num, column=2, value=prod)
         ws2.cell(row=row_num, column=3, value=pres)
@@ -226,7 +266,7 @@ def exportar_excel(lotes: List[Dict], desde: date, hasta: date) -> str:
     set_header_row(ws2, row_num, ["Subtotales por Llenadora", "", "", "", ""], COLOR_SUBTOTAL)
     ws2.cell(row=row_num, column=1).font = Font(bold=True, color="1F4E79")
     row_num += 1
-    for maq, prods in resumen_maq.items():
+    for maq, prods in sorted(resumen_maq.items(), key=lambda x: _orden_maquina(x[0])):
         total_maq = sum(prods.values())
         ws2.cell(row=row_num, column=1, value=maq).font = subtotal_font
         ws2.cell(row=row_num, column=5, value=int(total_maq)).font = subtotal_font
