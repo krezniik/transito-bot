@@ -23,6 +23,15 @@ LINEA_MAQUINA = {
     "Chub":      "L46",
 }
 
+ORDEN_MAQUINAS = ["Mespack 1", "Mespack 2", "Mespack 3", "Chub"]
+
+
+def _orden_maquina(maquina: str) -> int:
+    try:
+        return ORDEN_MAQUINAS.index(maquina)
+    except ValueError:
+        return len(ORDEN_MAQUINAS)
+
 
 def siguiente_hora_reporte(now: datetime) -> str:
     """Devuelve la hora del próximo reporte de turno (05:00, 15:00 o 22:00)."""
@@ -58,7 +67,7 @@ def generar_resumen_texto(
 
     # ── Detalle por máquina ──
     lineas = ["⚙️ *Detalle por llenadora:*\n"]
-    for maquina, productos in resumen_maquinas.items():
+    for maquina, productos in sorted(resumen_maquinas.items(), key=lambda x: _orden_maquina(x[0])):
         total_maq = sum(d["cajas"] for d in productos.values())
         linea_num = LINEA_MAQUINA.get(maquina, "")
         encabezado = f"*{maquina} ({linea_num})*" if linea_num else f"*{maquina}*"
@@ -242,7 +251,7 @@ def exportar_excel(lotes: List[Dict], desde: date, hasta: date) -> str:
 
     row_num = 3
     alt = False
-    for (maq, prod, pres, merc), total in sorted(resumen.items()):
+    for (maq, prod, pres, merc), total in sorted(resumen.items(), key=lambda x: (_orden_maquina(x[0][0]), x[0][1:])):
         ws2.cell(row=row_num, column=1, value=maq)
         ws2.cell(row=row_num, column=2, value=prod)
         ws2.cell(row=row_num, column=3, value=pres)
@@ -257,7 +266,7 @@ def exportar_excel(lotes: List[Dict], desde: date, hasta: date) -> str:
     set_header_row(ws2, row_num, ["Subtotales por Llenadora", "", "", "", ""], COLOR_SUBTOTAL)
     ws2.cell(row=row_num, column=1).font = Font(bold=True, color="1F4E79")
     row_num += 1
-    for maq, prods in resumen_maq.items():
+    for maq, prods in sorted(resumen_maq.items(), key=lambda x: _orden_maquina(x[0])):
         total_maq = sum(prods.values())
         ws2.cell(row=row_num, column=1, value=maq).font = subtotal_font
         ws2.cell(row=row_num, column=5, value=int(total_maq)).font = subtotal_font
