@@ -51,25 +51,28 @@ def generar_resumen_texto(
     canastas_estimadas: Optional[int] = None,
     hora_proyeccion: Optional[str] = None,
     proyeccion_items: Optional[List[Dict]] = None,
+    lotes_acumulados: Optional[List[Dict]] = None,
 ) -> str:
     """
-    Genera el bloque "Tránsito 📋" agrupado por producto + presentación + mercado,
-    igual al formato original del script.
-    Si se pasan proyeccion_items y hora_proyeccion, agrega la sección proyectada
-    con desglose por presentación.
+    Genera el bloque "Tránsito 📋" agrupado por producto + presentación + mercado.
+    - lotes: lotes del tránsito actual (desde el último reinicio) → sección "Tránsito 📋"
+    - lotes_acumulados: todos los lotes del turno → sección "Detalle por llenadora:"
+      Si es None, se usa `lotes` para ambas secciones.
     """
+    # Detalle usa lotes_acumulados si están disponibles, si no usa lotes
+    lotes_detalle = lotes_acumulados if lotes_acumulados is not None else lotes
+
     resumen_limpio: dict = defaultdict(float)
     resumen_maquinas: dict = defaultdict(lambda: defaultdict(lambda: {"cajas": 0.0, "cpc": 0.0}))
     lotes_ids_maquinas: dict = defaultdict(list)
 
-    for r in lotes:
+    for r in lotes_detalle:
         clave = f"{r['producto_legible']} {r['presentacion'].lower()} {r['mercado_legible']}"
-        resumen_limpio[clave]                          += r['cajas_en_transito']
         resumen_maquinas[r['maquina']][clave]["cajas"] += r['cajas_en_transito']
         resumen_maquinas[r['maquina']][clave]["cpc"]    = r['cajas_por_canasta']
         lotes_ids_maquinas[r['maquina']].append(r['id'])
 
-    # ── Detalle por máquina ──
+    # ── Detalle por máquina (acumulado del turno) ──
     lineas = ["⚙️ *Detalle por llenadora:*\n"]
     for maquina, productos in sorted(resumen_maquinas.items(), key=lambda x: _orden_maquina(x[0])):
         total_maq = sum(d["cajas"] for d in productos.values())
@@ -83,19 +86,28 @@ def generar_resumen_texto(
         lineas.append(f"  Lotes: {', '.join(f'`{i}`' for i in ids)}")
         lineas.append(f"  _Total: {int(total_maq):,} cajas_\n")
 
-    # ── Resumen consolidado (para compartir) ──
+    # ── Resumen consolidado (tránsito actual, para compartir) ──
+    resumen_transito: dict = defaultdict(float)
+    resumen_maq_transito: dict = defaultdict(list)
+    for r in lotes:
+        clave = f"{r['producto_legible']} {r['presentacion'].lower()} {r['mercado_legible']}"
+        resumen_limpio[clave]  += r['cajas_en_transito']
+        resumen_transito[clave] += r['cajas_en_transito']
+        if clave not in resumen_maq_transito[r['maquina']]:
+            resumen_maq_transito[r['maquina']].append(clave)
+
     lineas.append("───────────────")
     lineas.append("Tránsito 📋\n")
     claves_vistas = []
-    for maquina, productos in sorted(resumen_maquinas.items(), key=lambda x: _orden_maquina(x[0])):
-        for clave in productos:
+    for maquina in ORDEN_MAQUINAS:
+        for clave in resumen_maq_transito.get(maquina, []):
             if clave not in claves_vistas:
                 claves_vistas.append(clave)
     for clave in claves_vistas:
         lineas.append(f"{clave}")
-        lineas.append(f"{int(resumen_limpio[clave]):,} cajas 📦\n")
+        lineas.append(f"{int(resumen_transito[clave]):,} cajas 📦\n")
 
-    total_general = sum(resumen_limpio.values())
+    total_general = sum(resumen_transito.values())
     lineas.append(f"───────────────")
     lineas.append(f"*Dato actual acumulado: {int(total_general):,} cajas*")
 

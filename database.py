@@ -46,6 +46,11 @@ class Database:
                 conn.commit()
             except Exception:
                 pass  # columna ya existe
+            try:
+                conn.execute("ALTER TABLE turnos ADD COLUMN transito_marcador TEXT")
+                conn.commit()
+            except Exception:
+                pass  # columna ya existe
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS lotes (
                     id                TEXT PRIMARY KEY,
@@ -200,6 +205,47 @@ class Database:
         if row and row["proyeccion_items"]:
             return json.loads(row["proyeccion_items"])
         return None
+
+    # ── Marcador de tránsito ───────────────────────────────────────────────────
+    def set_transito_marcador(self, user_id: int, timestamp: str):
+        """Guarda el punto de reinicio de tránsito en el turno activo."""
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE turnos SET transito_marcador=? WHERE user_id=? AND abierto=1",
+                (timestamp, user_id)
+            )
+            conn.commit()
+
+    def get_transito_marcador(self, user_id: int) -> Optional[str]:
+        """Devuelve el marcador de reinicio de tránsito del turno activo, o None."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT transito_marcador FROM turnos WHERE user_id=? AND abierto=1 ORDER BY creado_en DESC LIMIT 1",
+                (user_id,)
+            ).fetchone()
+        return row["transito_marcador"] if row else None
+
+    def get_lotes_transito_actual(self, user_id: int) -> List[Dict]:
+        """Devuelve solo los lotes del turno activo posteriores al marcador de reinicio."""
+        marcador = self.get_transito_marcador(user_id)
+        with self._conn() as conn:
+            turno = conn.execute(
+                "SELECT id FROM turnos WHERE user_id=? AND abierto=1 ORDER BY creado_en DESC LIMIT 1",
+                (user_id,)
+            ).fetchone()
+            if not turno:
+                return []
+            if marcador:
+                rows = conn.execute(
+                    "SELECT * FROM lotes WHERE turno_id=? AND timestamp > ? ORDER BY timestamp ASC",
+                    (turno["id"], marcador)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM lotes WHERE turno_id=? ORDER BY timestamp ASC",
+                    (turno["id"],)
+                ).fetchall()
+        return [dict(r) for r in rows]
 
     def get_lotes_rango(self, user_id: int, desde: str, hasta: str) -> List[Dict]:
         with self._conn() as conn:

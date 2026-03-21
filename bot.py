@@ -342,19 +342,26 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
     now     = datetime.now(TZ)
-    lotes   = db.get_lotes_turno_activo(user_id)
-    if not lotes:
+    lotes_todos    = db.get_lotes_turno_activo(user_id)
+    lotes_actuales = db.get_lotes_transito_actual(user_id)
+    if not lotes_todos:
         await update.message.reply_text("📭 No hay lotes registrados en el turno actual.\nUsa /lote para agregar uno.")
         return
     proy_items = db.get_proyeccion_items(user_id)
     hora_proy  = siguiente_hora_reporte(now) if proy_items else None
-    texto = generar_resumen_texto(lotes, hora_proyeccion=hora_proy, proyeccion_items=proy_items)
+    texto = generar_resumen_texto(
+        lotes_actuales,
+        hora_proyeccion=hora_proy,
+        proyeccion_items=proy_items,
+        lotes_acumulados=lotes_todos,
+    )
     await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
 # -- /enviar -------------------------------------------------------------------
 async def cmd_enviar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
-    lotes   = db.get_lotes_turno_activo(user_id)
+    now     = datetime.now(TZ)
+    lotes   = db.get_lotes_transito_actual(user_id)
     if not lotes:
         await update.message.reply_text("📭 No hay lotes para enviar.")
         return
@@ -363,10 +370,30 @@ async def cmd_enviar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         await enviar_reporte_grupo(context.bot, CHAT_ID_GRUPO, lotes)
-        await update.message.reply_text("✅ Resumen enviado al grupo correctamente.")
+        db.set_transito_marcador(user_id, now.isoformat())
+        await update.message.reply_text(
+            "✅ Resumen enviado al grupo.\n"
+            "🔄 Tránsito reiniciado — el Detalle acumulado sigue disponible en /resumen."
+        )
     except Exception as e:
         logger.error(f"Error enviando al grupo: {e}")
         await update.message.reply_text(f"❌ Error al enviar: {e}")
+# -- /reiniciar_transito -------------------------------------------------------
+async def cmd_reiniciar_transito(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not autorizado(update): return
+    user_id = update.effective_user.id
+    now     = datetime.now(TZ)
+    lotes   = db.get_lotes_transito_actual(user_id)
+    if not lotes:
+        await update.message.reply_text("ℹ️ El tránsito ya está vacío. Los lotes anteriores siguen en el Detalle.")
+        return
+    db.set_transito_marcador(user_id, now.isoformat())
+    await update.message.reply_text(
+        "🔄 *Tránsito reiniciado.*\n"
+        "Los lotes anteriores quedan en el Detalle acumulado de /resumen.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
 # -- /nuevo_turno --------------------------------------------------------------
 async def cmd_nuevo_turno(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
@@ -602,6 +629,7 @@ async def post_init(application):
         BotCommand("lotes",           "Registrar varios lotes a la vez"),
         BotCommand("resumen",         "Ver tránsito del turno"),
         BotCommand("enviar",          "Enviar resumen al grupo"),
+        BotCommand("reiniciar_transito", "Reiniciar tránsito sin perder historial"),
         BotCommand("nuevo_turno",     "Cerrar turno y empezar de cero"),
         BotCommand("eliminar_lote",   "Eliminar un lote por ID"),
         BotCommand("reporte",         "Consultar historial por fecha"),
@@ -618,8 +646,9 @@ async def post_init(application):
         now = datetime.now(TZ)
         for uid in allowed:
             try:
-                lotes = db.get_lotes_turno_activo(uid)
-                if not lotes:
+                lotes_todos    = db.get_lotes_turno_activo(uid)
+                lotes_actuales = db.get_lotes_transito_actual(uid)
+                if not lotes_todos:
                     await bot.send_message(
                         chat_id=uid,
                         text=f"⏰ *Reporte automatico - {turno_nombre}*\n\nNo hay lotes registrados en este turno.",
@@ -629,12 +658,16 @@ async def post_init(application):
                 # Enviar resumen al usuario
                 proy_items = db.get_proyeccion_items(uid)
                 hora_proy  = siguiente_hora_reporte(now) if proy_items else None
-                texto = f"⏰ *Reporte automatico - {turno_nombre}*\n\n" + generar_resumen_texto(lotes, hora_proyeccion=hora_proy, proyeccion_items=proy_items)
-                await bot.send_message(chat_id=uid, text=texto, 
-parse_mode=ParseMode.MARKDOWN)
+                texto = f"⏰ *Reporte automatico - {turno_nombre}*\n\n" + generar_resumen_texto(
+                    lotes_actuales,
+                    hora_proyeccion=hora_proy,
+                    proyeccion_items=proy_items,
+                    lotes_acumulados=lotes_todos,
+                )
+                await bot.send_message(chat_id=uid, text=texto, parse_mode=ParseMode.MARKDOWN)
                 # Enviar al grupo si está configurado
                 if CHAT_ID_GRUPO:
-                    await enviar_reporte_grupo(bot, CHAT_ID_GRUPO, lotes)
+                    await enviar_reporte_grupo(bot, CHAT_ID_GRUPO, lotes_actuales)
                 # Cerrar turno automáticamente
                 db.cerrar_turno(uid, now.isoformat())
                 await bot.send_message(
@@ -680,6 +713,7 @@ def main():
     app.add_handler(CommandHandler("lotes",           cmd_lotes))
     app.add_handler(CommandHandler("resumen",         cmd_resumen))
     app.add_handler(CommandHandler("enviar",          cmd_enviar))
+    app.add_handler(CommandHandler("reiniciar_transito", cmd_reiniciar_transito))
     app.add_handler(CommandHandler("nuevo_turno",     cmd_nuevo_turno))
     app.add_handler(CommandHandler("eliminar_lote",   cmd_eliminar_lote))
     app.add_handler(CommandHandler("reporte",         cmd_reporte))
