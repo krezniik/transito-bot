@@ -80,9 +80,14 @@ def generar_resumen_texto(
     # ── Resumen consolidado (para compartir) ──
     lineas.append("───────────────")
     lineas.append("Tránsito 📋\n")
-    for clave, total in resumen_limpio.items():
+    claves_vistas = []
+    for maquina, productos in sorted(resumen_maquinas.items(), key=lambda x: _orden_maquina(x[0])):
+        for clave in productos:
+            if clave not in claves_vistas:
+                claves_vistas.append(clave)
+    for clave in claves_vistas:
         lineas.append(f"{clave}")
-        lineas.append(f"{int(total):,} cajas 📦\n")
+        lineas.append(f"{int(resumen_limpio[clave]):,} cajas 📦\n")
 
     total_general = sum(resumen_limpio.values())
     lineas.append(f"───────────────")
@@ -107,14 +112,23 @@ def generar_resumen_texto(
 def _generar_mensaje_grupo(lotes: List[Dict]) -> str:
     """Genera solo el bloque limpio para el grupo (sin detalle por máquina)."""
     resumen_limpio: dict = defaultdict(float)
+    resumen_maquinas: dict = defaultdict(list)
     for r in lotes:
         clave = f"{r['producto_legible']} {r['presentacion'].lower()} {r['mercado_legible']}"
         resumen_limpio[clave] += r['cajas_en_transito']
+        if clave not in resumen_maquinas[r['maquina']]:
+            resumen_maquinas[r['maquina']].append(clave)
+
+    claves_vistas = []
+    for maquina, claves in sorted(resumen_maquinas.items(), key=lambda x: _orden_maquina(x[0])):
+        for clave in claves:
+            if clave not in claves_vistas:
+                claves_vistas.append(clave)
 
     lineas = ["Tránsito 📋\n"]
-    for clave, total in resumen_limpio.items():
+    for clave in claves_vistas:
         lineas.append(f"{clave}")
-        lineas.append(f"{int(total):,} cajas 📦\n")
+        lineas.append(f"{int(resumen_limpio[clave]):,} cajas 📦\n")
     return "\n".join(lineas)
 
 
