@@ -39,7 +39,7 @@ TABLA_ENTEROS = {
 MAQUINAS_PIN_GRANDE = {'Mespack 3', 'Chub'}
 
 # Presentaciones individuales: se pregunta el pin en cualquier llenadora (si no se menciona)
-PRESENTACIONES_INDIVIDUALES = {'8', '14', '16'}
+PRESENTACIONES_INDIVIDUALES = {'8', '14'}
 # Presentaciones familiares: siempre pin grande en cualquier llenadora
 PRESENTACIONES_FAMILIARES = {'28', '35', '40', '80'}
 
@@ -79,7 +79,8 @@ Conversiones OBLIGATORIAS:
 - pin: "pequeño","pequeno","chico","P" → "p" | "grande","gran","G" → "g"
 - mercado: "local","RTCA","L","guatemala" → "L" | "exportacion","FDA","E","export" → "E"
 - maquina_raw: "m1","mespack1","llenadora 1" → "m1" | "m2" → "m2" | "m3" → "m3" | "chub" → "chub"
-- Presentaciones individuales (8, 14, 16 oz): extraer pin del texto; si no se menciona, dejar pin vacío "" (aplica a cualquier llenadora)
+- Presentaciones individuales (8, 14 oz): extraer pin del texto; si no se menciona, dejar pin vacío "" (aplica a cualquier llenadora)
+- 16 oz: pin siempre "p" (solo existe pin pequeño para esta presentación)
 - Presentaciones familiares (28, 35, 40, 80 oz) y 4 lbs: pin siempre "g" (aplica a cualquier llenadora)
 - 4 oz: pin siempre "p" (aplica a cualquier llenadora)
 - Si falta dato, error: "Falta: <campo>"
