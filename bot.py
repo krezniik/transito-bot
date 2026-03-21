@@ -20,7 +20,7 @@ from telegram.ext import (
 from telegram.constants import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from database import Database
-from lote_parser import parsear_lote_con_claude, calcular_cajas
+from lote_parser import parsear_lote_con_claude, calcular_cajas, parsear_proyeccion_con_claude, TABLA
 from reporter import generar_resumen_texto, enviar_reporte_grupo, exportar_excel, LINEA_MAQUINA, siguiente_hora_reporte
 from recordatorio import programar_recordatorio, cancelar_recordatorio_activo
 load_dotenv()
@@ -47,6 +47,12 @@ def _keyboard_pin() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("Pin pequeño", callback_data="pin:p"),
         InlineKeyboardButton("Pin grande",  callback_data="pin:g"),
+    ]])
+
+def _keyboard_pin_proy() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("Pin pequeño", callback_data="pin_proy:p"),
+        InlineKeyboardButton("Pin grande",  callback_data="pin_proy:g"),
     ]])
 
 def _nombre_maquina(maquina: str) -> str:
@@ -340,9 +346,9 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not lotes:
         await update.message.reply_text("📭 No hay lotes registrados en el turno actual.\nUsa /lote para agregar uno.")
         return
-    canastas_est = db.get_proyeccion(user_id)
-    hora_proy    = siguiente_hora_reporte(now) if canastas_est else None
-    texto = generar_resumen_texto(lotes, canastas_estimadas=canastas_est, hora_proyeccion=hora_proy)
+    proy_items = db.get_proyeccion_items(user_id)
+    hora_proy  = siguiente_hora_reporte(now) if proy_items else None
+    texto = generar_resumen_texto(lotes, hora_proyeccion=hora_proy, proyeccion_items=proy_items)
     await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
 # -- /enviar -------------------------------------------------------------------
 async def cmd_enviar(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -463,29 +469,119 @@ async def cmd_recordatorio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN
     )
 # -- /proyeccion ---------------------------------------------------------------
+def _texto_confirmacion_proyeccion(items: list, hora: str) -> str:
+    lineas = [f"✅ *Proyección guardada hasta las {hora} horas:*\n"]
+    for item in items:
+        lineas.append(
+            f"  {item['presentacion']} · Pin {item['pin_legible']} · "
+            f"{item['canastas']} canastas · *{int(item['cajas']):,} cajas*"
+        )
+    lineas.append("\nSe mostrará en el /resumen.")
+    return "\n".join(lineas)
+
+
 async def cmd_proyeccion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
     user_id = update.effective_user.id
     now     = datetime.now(TZ)
+    texto   = " ".join(context.args) if context.args else ""
 
-    if not context.args or not context.args[0].isdigit():
+    if not texto:
         hora = siguiente_hora_reporte(now)
-        canastas_actuales = db.get_proyeccion(user_id)
-        estado = f"\nEstimación actual: *{canastas_actuales} canastas*" if canastas_actuales else ""
+        items_actuales = db.get_proyeccion_items(user_id)
+        estado = ""
+        if items_actuales:
+            estado = "\n\nProyección actual:"
+            for it in items_actuales:
+                estado += f"\n  {it['presentacion']} · Pin {it['pin_legible']} · {it['canastas']} canastas"
         await update.message.reply_text(
-            f"📈 Uso: `/proyeccion <canastas>`\n"
-            f"Ingresa las canastas estimadas que se llenarán hasta las *{hora}*."
+            f"📈 Envía las canastas estimadas hasta las *{hora}*.\n"
+            f"Ejemplo: `/proyeccion 10 canastas 8 onzas`"
             + estado,
             parse_mode=ParseMode.MARKDOWN
         )
         return
 
-    canastas = int(context.args[0])
+    await update.effective_chat.send_action("typing")
+    resultado = await parsear_proyeccion_con_claude(anthropic_client, texto)
+
+    if isinstance(resultado, dict) and resultado.get("error"):
+        await update.message.reply_text(f"❌ {resultado['error']}")
+        return
+
+    items_ok = []
+    cola = []
+    for item in resultado:
+        if item.get("error"):
+            await update.message.reply_text(f"❌ {item['error']}")
+            return
+        if item.get("requiere_confirmacion_pin"):
+            cola.append(item)
+        else:
+            items_ok.append(item)
+
+    context.user_data["proy_confirmados"] = items_ok
+    context.user_data["cola_pin_proy"]    = cola
+
     hora = siguiente_hora_reporte(now)
-    db.guardar_proyeccion(user_id, canastas)
-    await update.message.reply_text(
-        f"✅ Proyección guardada: *{canastas} canastas* estimadas hasta las *{hora}*.\n"
-        "Se mostrará en el /resumen.",
+    if cola:
+        siguiente = cola[0]
+        await update.message.reply_text(
+            f"⚙️ *{siguiente['presentacion']}* · {siguiente['canastas']} canastas\n"
+            "¿Qué pin usa esta presentación?",
+            reply_markup=_keyboard_pin_proy(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        db.guardar_proyeccion_items(user_id, items_ok)
+        await update.message.reply_text(
+            _texto_confirmacion_proyeccion(items_ok, hora),
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+
+# -- Confirmación de pin para proyección ---------------------------------------
+async def confirmar_pin_proyeccion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    pin  = query.data.split(":")[1]
+    cola = context.user_data.get("cola_pin_proy", [])
+    if not cola:
+        await query.edit_message_text("❌ No hay proyección pendiente de confirmación.")
+        return
+
+    item = cola.pop(0)
+    item["pin"]              = pin
+    item["pin_legible"]      = "Grande" if pin == "g" else "Pequeño"
+    item["cajas_por_canasta"] = TABLA.get((item["presentacion_raw"], pin))
+    item["cajas"]            = item["canastas"] * item["cajas_por_canasta"]
+
+    confirmados = context.user_data.get("proy_confirmados", [])
+    confirmados.append(item)
+    context.user_data["proy_confirmados"] = confirmados
+
+    if cola:
+        context.user_data["cola_pin_proy"] = cola
+        siguiente = cola[0]
+        await query.edit_message_text(
+            f"✅ {item['presentacion']} · Pin {item['pin_legible']} guardado\n\n"
+            f"⚙️ *{siguiente['presentacion']}* · {siguiente['canastas']} canastas\n"
+            "¿Qué pin usa esta presentación?",
+            reply_markup=_keyboard_pin_proy(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    # Todas confirmadas — guardar
+    context.user_data.pop("cola_pin_proy", None)
+    context.user_data.pop("proy_confirmados", None)
+    user_id = query.from_user.id
+    now     = datetime.now(TZ)
+    hora    = siguiente_hora_reporte(now)
+    db.guardar_proyeccion_items(user_id, confirmados)
+    await query.edit_message_text(
+        _texto_confirmacion_proyeccion(confirmados, hora),
         parse_mode=ParseMode.MARKDOWN
     )
 
@@ -531,9 +627,9 @@ async def post_init(application):
                     )
                     continue
                 # Enviar resumen al usuario
-                canastas_est = db.get_proyeccion(uid)
-                hora_proy    = siguiente_hora_reporte(now) if canastas_est else None
-                texto = f"⏰ *Reporte automatico - {turno_nombre}*\n\n" + generar_resumen_texto(lotes, canastas_estimadas=canastas_est, hora_proyeccion=hora_proy)
+                proy_items = db.get_proyeccion_items(uid)
+                hora_proy  = siguiente_hora_reporte(now) if proy_items else None
+                texto = f"⏰ *Reporte automatico - {turno_nombre}*\n\n" + generar_resumen_texto(lotes, hora_proyeccion=hora_proy, proyeccion_items=proy_items)
                 await bot.send_message(chat_id=uid, text=texto, 
 parse_mode=ParseMode.MARKDOWN)
                 # Enviar al grupo si está configurado
@@ -592,7 +688,8 @@ def main():
     app.add_handler(CommandHandler("cancelar_alerta", cmd_cancelar_alerta))
     app.add_handler(CommandHandler("proyeccion",      cmd_proyeccion))
     app.add_handler(MessageHandler(filters.VOICE,     handle_voice))
-    app.add_handler(CallbackQueryHandler(confirmar_pin, pattern="^pin:"))
+    app.add_handler(CallbackQueryHandler(confirmar_pin,          pattern="^pin:"))
+    app.add_handler(CallbackQueryHandler(confirmar_pin_proyeccion, pattern="^pin_proy:"))
     logger.info("🤖 Escuchando mensajes...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 if __name__ == "__main__":

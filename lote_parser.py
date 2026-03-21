@@ -38,6 +38,11 @@ TABLA_ENTEROS = {
 # Máquinas que siempre usan pin grande
 MAQUINAS_PIN_GRANDE = {'Mespack 3', 'Chub'}
 
+# Presentaciones individuales: se pregunta el pin en cualquier llenadora (si no se menciona)
+PRESENTACIONES_INDIVIDUALES = {'8', '14'}
+# Presentaciones familiares: siempre pin grande en cualquier llenadora
+PRESENTACIONES_FAMILIARES = {'28', '35', '40', '80'}
+
 MAQUINAS_VALIDAS = {
     'm1': 'Mespack 1', 'mespack1': 'Mespack 1', 'mespack 1': 'Mespack 1',
     'm2': 'Mespack 2', 'mespack2': 'Mespack 2', 'mespack 2': 'Mespack 2',
@@ -74,8 +79,10 @@ Conversiones OBLIGATORIAS:
 - pin: "pequeño","pequeno","chico","P" → "p" | "grande","gran","G" → "g"
 - mercado: "local","RTCA","L","guatemala" → "L" | "exportacion","FDA","E","export" → "E"
 - maquina_raw: "m1","mespack1","llenadora 1" → "m1" | "m2" → "m2" | "m3" → "m3" | "chub" → "chub"
-- Si Mespack 3 o Chub con presentacion distinta de "8" y "14", pin siempre es "g"
-- Si Mespack 3 con presentacion "8" o "14": extraer pin del texto; si no se menciona, dejar pin vacío ""
+- Presentaciones individuales (8, 14 oz): extraer pin del texto; si no se menciona, dejar pin vacío "" (aplica a cualquier llenadora)
+- 16 oz: pin siempre "p" (solo existe pin pequeño para esta presentación)
+- Presentaciones familiares (28, 35, 40, 80 oz) y 4 lbs: pin siempre "g" (aplica a cualquier llenadora)
+- 4 oz: pin siempre "p" (aplica a cualquier llenadora)
 - Si falta dato, error: "Falta: <campo>"
 """
 
@@ -99,15 +106,20 @@ def humanizar(datos: dict, pin_explicito: bool = False) -> dict:
     canastas     = datos.get("canastas", 0)
     mercado      = datos.get("mercado", "L")
 
-    # Pin: forzar grande para Mespack 3 y Chub, excepto M3 con 8oz o 14oz
+    # Pin: lógica según presentación (aplica a cualquier llenadora)
     pin = datos.get("pin") or "p"
     requiere_confirmacion_pin = False
-    if maquina in MAQUINAS_PIN_GRANDE:
-        if maquina == "Mespack 3" and presentacion in ("8", "14"):
-            if not pin_explicito:
-                requiere_confirmacion_pin = True
-        else:
-            pin = "g"
+    if presentacion in PRESENTACIONES_FAMILIARES or presentacion == '4lbs':
+        # Familiares (28, 35, 40, 80 oz) y 4 lbs → siempre pin grande
+        pin = "g"
+    elif presentacion in PRESENTACIONES_INDIVIDUALES:
+        # Individuales (8, 14, 16 oz) → preguntar pin si no se mencionó explícitamente
+        if not pin_explicito:
+            requiere_confirmacion_pin = True
+    elif maquina in MAQUINAS_PIN_GRANDE:
+        # Otras presentaciones en M3/Chub → forzar grande
+        pin = "g"
+    # 4 oz en cualquier llenadora → queda como "p" (default)
 
     cajas_por_canasta = calcular_cajas(producto, presentacion, pin)
     if cajas_por_canasta is None:
@@ -126,7 +138,7 @@ def humanizar(datos: dict, pin_explicito: bool = False) -> dict:
         "producto":          producto,
         "producto_legible":  PRODUCTOS_LEGIBLES.get(producto, producto),
         "pin":               pin,
-        "pin_legible":       "Grande" if pin == "g" else "Pequeño",
+        "pin_legible":       "Único" if presentacion == "4lbs" else ("Grande" if pin == "g" else "Pequeño"),
         "mercado":           mercado,
         "mercado_legible":   "RTCA 🇬🇹" if mercado == "L" else "FDA 🇺🇸",
         "cajas_por_canasta":        cajas_por_canasta,
@@ -134,6 +146,110 @@ def humanizar(datos: dict, pin_explicito: bool = False) -> dict:
         "error":                    None,
         "requiere_confirmacion_pin": requiere_confirmacion_pin,
     }
+
+
+SYSTEM_PROMPT_PROYECCION = """Eres un asistente de planta procesadora de frijoles.
+Extrae datos de proyección y responde SOLO con JSON válido (array), sin texto adicional.
+
+Estructura exacta (array con un objeto por presentación):
+[{"presentacion": "", "pin": "", "canastas": 0}]
+
+Conversiones OBLIGATORIAS:
+- presentacion: "8oz","8 oz","ocho onzas","8 onzas" → "8" | "14oz","14 onzas" → "14" | "4lbs","4 libras" → "4lbs" | "16oz","16 onzas" → "16" | "28oz" → "28" | "35oz" → "35" | "40oz" → "40" | "80oz" → "80" | solo el número sin unidad
+- pin: "pequeño","pequeno","chico","P","pin pequeño","pin p" → "p" | "grande","gran","G","pin grande","pin g" → "g" | si no se menciona → ""
+- canastas: número entero
+- Si hay múltiples presentaciones (separadas por coma, "y", o línea nueva), incluir todas en el array
+- Si falta presentacion o canastas, devolver: [{"error": "Falta: <campo>"}]
+"""
+
+
+def humanizar_proyeccion(item: dict) -> dict:
+    """
+    Aplica lógica de pin y calcula cajas para un item de proyección.
+    Retorna dict con todos los campos calculados o {"error": "..."}.
+    """
+    presentacion = str(item.get("presentacion", "")).strip()
+    canastas     = item.get("canastas", 0)
+    pin          = item.get("pin", "") or ""
+    pin_explicito = bool(pin)
+    requiere_confirmacion_pin = False
+
+    if presentacion in PRESENTACIONES_FAMILIARES or presentacion == "4lbs":
+        pin = "g"
+    elif presentacion == "4":
+        pin = "p"
+    elif presentacion == "16":
+        pin = "p"
+    elif presentacion in PRESENTACIONES_INDIVIDUALES:
+        if not pin_explicito:
+            requiere_confirmacion_pin = True
+        elif not pin:
+            pin = "p"
+    else:
+        if not pin:
+            pin = "g"
+
+    pres_legible = f"{presentacion} oz" if presentacion != "4lbs" else "4 lbs"
+    if presentacion == "4":
+        pres_legible = "4 oz"
+
+    if requiere_confirmacion_pin:
+        cajas_por_canasta = None
+        cajas = None
+    else:
+        cajas_por_canasta = TABLA.get((presentacion, pin))
+        if cajas_por_canasta is None:
+            return {"error": f"Presentación no válida: {pres_legible}"}
+        cajas = canastas * cajas_por_canasta
+
+    pin_legible = "Único" if presentacion == "4lbs" else ("Grande" if pin == "g" else "Pequeño")
+
+    return {
+        "presentacion":            pres_legible,
+        "presentacion_raw":        presentacion,
+        "pin":                     pin,
+        "pin_legible":             pin_legible,
+        "canastas":                canastas,
+        "cajas_por_canasta":       cajas_por_canasta,
+        "cajas":                   cajas,
+        "requiere_confirmacion_pin": requiere_confirmacion_pin,
+        "error":                   None,
+    }
+
+
+async def parsear_proyeccion_con_claude(client, texto: str) -> list | dict:
+    """
+    Usa Claude Haiku para extraer items de proyección desde texto libre.
+    Retorna lista de dicts humanizados o {"error": "..."}.
+    """
+    raw = ""
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            system=SYSTEM_PROMPT_PROYECCION,
+            messages=[{"role": "user", "content": texto}],
+        )
+        raw = response.content[0].text.strip()
+        raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON inválido de Claude (proyeccion): {e} | raw: {raw}")
+        return {"error": "No pude interpretar los datos de proyección."}
+    except Exception as e:
+        logger.error(f"Error Claude (proyeccion): {e}")
+        return {"error": "Error al procesar con IA."}
+
+    if not isinstance(parsed, list):
+        return {"error": "Respuesta inesperada del parser."}
+
+    resultados = []
+    for item in parsed:
+        if item.get("error"):
+            return {"error": item["error"]}
+        resultados.append(humanizar_proyeccion(item))
+
+    return resultados
 
 
 async def parsear_lote_con_claude(client, texto: str, now: datetime) -> Dict:

@@ -50,11 +50,13 @@ def generar_resumen_texto(
     lotes: List[Dict],
     canastas_estimadas: Optional[int] = None,
     hora_proyeccion: Optional[str] = None,
+    proyeccion_items: Optional[List[Dict]] = None,
 ) -> str:
     """
     Genera el bloque "Tránsito 📋" agrupado por producto + presentación + mercado,
     igual al formato original del script.
-    Si se pasan canastas_estimadas y hora_proyeccion, agrega el dato proyectado.
+    Si se pasan proyeccion_items y hora_proyeccion, agrega la sección proyectada
+    con desglose por presentación.
     """
     resumen_limpio: dict = defaultdict(float)
     resumen_maquinas: dict = defaultdict(lambda: defaultdict(lambda: {"cajas": 0.0, "cpc": 0.0}))
@@ -93,18 +95,19 @@ def generar_resumen_texto(
     lineas.append(f"───────────────")
     lineas.append(f"*Dato actual: {int(total_general):,} cajas*")
 
-    if canastas_estimadas is not None and hora_proyeccion:
-        # Promedio ponderado de cajas/canasta del turno actual
-        total_canastas = sum(l["canastas"] for l in lotes)
-        if total_canastas > 0:
-            promedio_cpc = sum(l["canastas"] * l["cajas_por_canasta"] for l in lotes) / total_canastas
-        else:
-            promedio_cpc = 0
-        cajas_proyectadas = total_general + canastas_estimadas * promedio_cpc
-        lineas.append(
-            f"📈 *Proyectado a {hora_proyeccion}: {int(cajas_proyectadas):,} cajas*"
-            f" _({canastas_estimadas} canastas est.)_"
-        )
+    if proyeccion_items and hora_proyeccion:
+        lineas.append(f"\n📈 *Proyectado hasta las {hora_proyeccion} horas:*\n")
+        total_proyectado = total_general
+        for item in proyeccion_items:
+            pres     = item["presentacion"]
+            pin_leg  = item["pin_legible"]
+            canastas = item["canastas"]
+            cajas    = item["cajas"]
+            total_proyectado += cajas
+            lineas.append(f"{pres} · Pin {pin_leg}")
+            lineas.append(f"{int(cajas):,} cajas 📦\n")
+        lineas.append("───────────────")
+        lineas.append(f"*Total proyectado: {int(total_proyectado):,} cajas*")
 
     return "\n".join(lineas)
 
