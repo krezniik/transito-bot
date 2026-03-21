@@ -148,6 +148,110 @@ def humanizar(datos: dict, pin_explicito: bool = False) -> dict:
     }
 
 
+SYSTEM_PROMPT_PROYECCION = """Eres un asistente de planta procesadora de frijoles.
+Extrae datos de proyección y responde SOLO con JSON válido (array), sin texto adicional.
+
+Estructura exacta (array con un objeto por presentación):
+[{"presentacion": "", "pin": "", "canastas": 0}]
+
+Conversiones OBLIGATORIAS:
+- presentacion: "8oz","8 oz","ocho onzas","8 onzas" → "8" | "14oz","14 onzas" → "14" | "4lbs","4 libras" → "4lbs" | "16oz","16 onzas" → "16" | "28oz" → "28" | "35oz" → "35" | "40oz" → "40" | "80oz" → "80" | solo el número sin unidad
+- pin: "pequeño","pequeno","chico","P","pin pequeño","pin p" → "p" | "grande","gran","G","pin grande","pin g" → "g" | si no se menciona → ""
+- canastas: número entero
+- Si hay múltiples presentaciones (separadas por coma, "y", o línea nueva), incluir todas en el array
+- Si falta presentacion o canastas, devolver: [{"error": "Falta: <campo>"}]
+"""
+
+
+def humanizar_proyeccion(item: dict) -> dict:
+    """
+    Aplica lógica de pin y calcula cajas para un item de proyección.
+    Retorna dict con todos los campos calculados o {"error": "..."}.
+    """
+    presentacion = str(item.get("presentacion", "")).strip()
+    canastas     = item.get("canastas", 0)
+    pin          = item.get("pin", "") or ""
+    pin_explicito = bool(pin)
+    requiere_confirmacion_pin = False
+
+    if presentacion in PRESENTACIONES_FAMILIARES or presentacion == "4lbs":
+        pin = "g"
+    elif presentacion == "4":
+        pin = "p"
+    elif presentacion == "16":
+        pin = "p"
+    elif presentacion in PRESENTACIONES_INDIVIDUALES:
+        if not pin_explicito:
+            requiere_confirmacion_pin = True
+        elif not pin:
+            pin = "p"
+    else:
+        if not pin:
+            pin = "g"
+
+    pres_legible = f"{presentacion} oz" if presentacion != "4lbs" else "4 lbs"
+    if presentacion == "4":
+        pres_legible = "4 oz"
+
+    if requiere_confirmacion_pin:
+        cajas_por_canasta = None
+        cajas = None
+    else:
+        cajas_por_canasta = TABLA.get((presentacion, pin))
+        if cajas_por_canasta is None:
+            return {"error": f"Presentación no válida: {pres_legible}"}
+        cajas = canastas * cajas_por_canasta
+
+    pin_legible = "Único" if presentacion == "4lbs" else ("Grande" if pin == "g" else "Pequeño")
+
+    return {
+        "presentacion":            pres_legible,
+        "presentacion_raw":        presentacion,
+        "pin":                     pin,
+        "pin_legible":             pin_legible,
+        "canastas":                canastas,
+        "cajas_por_canasta":       cajas_por_canasta,
+        "cajas":                   cajas,
+        "requiere_confirmacion_pin": requiere_confirmacion_pin,
+        "error":                   None,
+    }
+
+
+async def parsear_proyeccion_con_claude(client, texto: str) -> list | dict:
+    """
+    Usa Claude Haiku para extraer items de proyección desde texto libre.
+    Retorna lista de dicts humanizados o {"error": "..."}.
+    """
+    raw = ""
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            system=SYSTEM_PROMPT_PROYECCION,
+            messages=[{"role": "user", "content": texto}],
+        )
+        raw = response.content[0].text.strip()
+        raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON inválido de Claude (proyeccion): {e} | raw: {raw}")
+        return {"error": "No pude interpretar los datos de proyección."}
+    except Exception as e:
+        logger.error(f"Error Claude (proyeccion): {e}")
+        return {"error": "Error al procesar con IA."}
+
+    if not isinstance(parsed, list):
+        return {"error": "Respuesta inesperada del parser."}
+
+    resultados = []
+    for item in parsed:
+        if item.get("error"):
+            return {"error": item["error"]}
+        resultados.append(humanizar_proyeccion(item))
+
+    return resultados
+
+
 async def parsear_lote_con_claude(client, texto: str, now: datetime) -> Dict:
     """
     Usa Claude Haiku para extraer los datos del lote desde texto libre.

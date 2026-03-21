@@ -41,6 +41,11 @@ class Database:
                 conn.commit()
             except Exception:
                 pass  # columna ya existe
+            try:
+                conn.execute("ALTER TABLE turnos ADD COLUMN proyeccion_items TEXT")
+                conn.commit()
+            except Exception:
+                pass  # columna ya existe
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS lotes (
                     id                TEXT PRIMARY KEY,
@@ -167,6 +172,28 @@ class Database:
                 (user_id,)
             ).fetchone()
         return row["canastas_estimadas"] if row else None
+
+    def guardar_proyeccion_items(self, user_id: int, items: list):
+        """Guarda los items de proyección (lista de dicts) como JSON en el turno activo."""
+        import json
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE turnos SET proyeccion_items=? WHERE user_id=? AND abierto=1",
+                (json.dumps(items), user_id)
+            )
+            conn.commit()
+
+    def get_proyeccion_items(self, user_id: int) -> Optional[list]:
+        """Devuelve los items de proyección del turno activo, o None."""
+        import json
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT proyeccion_items FROM turnos WHERE user_id=? AND abierto=1 ORDER BY creado_en DESC LIMIT 1",
+                (user_id,)
+            ).fetchone()
+        if row and row["proyeccion_items"]:
+            return json.loads(row["proyeccion_items"])
+        return None
 
     def get_lotes_rango(self, user_id: int, desde: str, hasta: str) -> List[Dict]:
         with self._conn() as conn:
