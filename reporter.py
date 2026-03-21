@@ -114,13 +114,20 @@ def generar_resumen_texto(
 
         sorted_items = sorted(proyeccion_items, key=_proy_sort_key)
 
+        # Cajas en tránsito agrupadas por presentacion_raw (para sumar al proyectado)
+        transit_por_pres: dict = defaultdict(float)
+        for lote in lotes:
+            transit_por_pres[lote["presentacion_raw"]] += lote["cajas_en_transito"]
+
         lineas.append(f"\n📈 *Proyectado hasta las {hora_proyeccion} horas:*\n")
         total_proyectado = total_general
         for item in sorted_items:
-            cajas = item["cajas"]
-            total_proyectado += cajas
+            cajas_proy    = item["cajas"]
+            cajas_transit = transit_por_pres.get(item["presentacion_raw"], 0.0)
+            cajas_total   = cajas_transit + cajas_proy
+            total_proyectado += cajas_proy
             lineas.append(f"{item['presentacion']}")
-            lineas.append(f"{int(cajas):,} cajas 📦\n")
+            lineas.append(f"{int(cajas_total):,} cajas 📦\n")
         lineas.append("───────────────")
         lineas.append(f"*Total proyectado: {int(total_proyectado):,} cajas*")
 
