@@ -60,12 +60,14 @@ def generar_resumen_texto(
     """
     resumen_limpio: dict = defaultdict(float)
     resumen_maquinas: dict = defaultdict(lambda: defaultdict(lambda: {"cajas": 0.0, "cpc": 0.0}))
+    lotes_ids_maquinas: dict = defaultdict(list)
 
     for r in lotes:
         clave = f"{r['producto_legible']} {r['presentacion'].lower()} {r['mercado_legible']}"
         resumen_limpio[clave]                          += r['cajas_en_transito']
         resumen_maquinas[r['maquina']][clave]["cajas"] += r['cajas_en_transito']
         resumen_maquinas[r['maquina']][clave]["cpc"]    = r['cajas_por_canasta']
+        lotes_ids_maquinas[r['maquina']].append(r['id'])
 
     # ── Detalle por máquina ──
     lineas = ["⚙️ *Detalle por llenadora:*\n"]
@@ -77,6 +79,8 @@ def generar_resumen_texto(
         for clave, datos in productos.items():
             lineas.append(f"  {clave}")
             lineas.append(f"  {datos['cpc']} c/c — {int(datos['cajas']):,} cajas")
+        ids = lotes_ids_maquinas.get(maquina, [])
+        lineas.append(f"  Lotes: {', '.join(f'`{i}`' for i in ids)}")
         lineas.append(f"  _Total: {int(total_maq):,} cajas_\n")
 
     # ── Resumen consolidado (para compartir) ──

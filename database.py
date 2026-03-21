@@ -174,12 +174,18 @@ class Database:
         return row["canastas_estimadas"] if row else None
 
     def guardar_proyeccion_items(self, user_id: int, items: list):
-        """Guarda los items de proyección (lista de dicts) como JSON en el turno activo."""
+        """Guarda los items de proyección haciendo merge con los existentes (por presentacion_raw + pin)."""
         import json
+        existentes = self.get_proyeccion_items(user_id) or []
+        # Indexar existentes por (presentacion_raw, pin)
+        merged = {(i["presentacion_raw"], i["pin"]): i for i in existentes}
+        for item in items:
+            merged[(item["presentacion_raw"], item["pin"])] = item
+        resultado = list(merged.values())
         with self._conn() as conn:
             conn.execute(
                 "UPDATE turnos SET proyeccion_items=? WHERE user_id=? AND abierto=1",
-                (json.dumps(items), user_id)
+                (json.dumps(resultado), user_id)
             )
             conn.commit()
 
