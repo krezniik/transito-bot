@@ -138,7 +138,7 @@ def humanizar(datos: dict, pin_explicito: bool = False) -> dict:
         "producto":          producto,
         "producto_legible":  PRODUCTOS_LEGIBLES.get(producto, producto),
         "pin":               pin,
-        "pin_legible":       "Grande" if pin == "g" else "Pequeño",
+        "pin_legible":       "Único" if presentacion == "4lbs" else ("Grande" if pin == "g" else "Pequeño"),
         "mercado":           mercado,
         "mercado_legible":   "RTCA 🇬🇹" if mercado == "L" else "FDA 🇺🇸",
         "cajas_por_canasta":        cajas_por_canasta,
