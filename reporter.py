@@ -93,19 +93,41 @@ def generar_resumen_texto(
 
     total_general = sum(resumen_limpio.values())
     lineas.append(f"───────────────")
-    lineas.append(f"*Dato actual: {int(total_general):,} cajas*")
+    lineas.append(f"*Dato actual acumulado: {int(total_general):,} cajas*")
 
     if proyeccion_items and hora_proyeccion:
+        # Ordenar igual que Tránsito: mismo orden de llenadora (M1→M2→M3→Chub)
+        pres_order = []
+        for maquina in ORDEN_MAQUINAS:
+            for lote in lotes:
+                if lote["maquina"] == maquina:
+                    key = (lote["presentacion_raw"], lote["pin"])
+                    if key not in pres_order:
+                        pres_order.append(key)
+
+        def _proy_sort_key(item):
+            key = (item["presentacion_raw"], item["pin"])
+            try:
+                return pres_order.index(key)
+            except ValueError:
+                return len(pres_order)
+
+        sorted_items = sorted(proyeccion_items, key=_proy_sort_key)
+
+        # Cajas en tránsito agrupadas por presentacion_raw (para sumar al proyectado)
+        transit_por_pres: dict = defaultdict(float)
+        for lote in lotes:
+            transit_por_pres[lote["presentacion_raw"]] += lote["cajas_en_transito"]
+
         lineas.append(f"\n📈 *Proyectado hasta las {hora_proyeccion} horas:*\n")
         total_proyectado = total_general
-        for item in proyeccion_items:
-            pres     = item["presentacion"]
-            pin_leg  = item["pin_legible"]
-            canastas = item["canastas"]
-            cajas    = item["cajas"]
-            total_proyectado += cajas
-            lineas.append(f"{pres} · Pin {pin_leg}")
-            lineas.append(f"{int(cajas):,} cajas 📦\n")
+        for item in sorted_items:
+            cajas_proy    = item["cajas"]
+            cajas_transit = transit_por_pres.get(item["presentacion_raw"], 0.0)
+            cajas_total   = cajas_transit + cajas_proy
+            total_proyectado += cajas_proy
+            lineas.append(f"{item['presentacion']}")
+            lineas.append(f"{int(cajas_total):,} cajas 📦\n")
         lineas.append("───────────────")
         lineas.append(f"*Total proyectado: {int(total_proyectado):,} cajas*")
 
