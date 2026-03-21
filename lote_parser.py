@@ -38,6 +38,11 @@ TABLA_ENTEROS = {
 # Máquinas que siempre usan pin grande
 MAQUINAS_PIN_GRANDE = {'Mespack 3', 'Chub'}
 
+# Presentaciones individuales: se pregunta el pin en cualquier llenadora (si no se menciona)
+PRESENTACIONES_INDIVIDUALES = {'8', '14', '16'}
+# Presentaciones familiares: siempre pin grande en cualquier llenadora
+PRESENTACIONES_FAMILIARES = {'28', '35', '40', '80'}
+
 MAQUINAS_VALIDAS = {
     'm1': 'Mespack 1', 'mespack1': 'Mespack 1', 'mespack 1': 'Mespack 1',
     'm2': 'Mespack 2', 'mespack2': 'Mespack 2', 'mespack 2': 'Mespack 2',
@@ -74,8 +79,9 @@ Conversiones OBLIGATORIAS:
 - pin: "pequeño","pequeno","chico","P" → "p" | "grande","gran","G" → "g"
 - mercado: "local","RTCA","L","guatemala" → "L" | "exportacion","FDA","E","export" → "E"
 - maquina_raw: "m1","mespack1","llenadora 1" → "m1" | "m2" → "m2" | "m3" → "m3" | "chub" → "chub"
-- Si Mespack 3 o Chub con presentacion distinta de "8" y "14", pin siempre es "g"
-- Si Mespack 3 con presentacion "8" o "14": extraer pin del texto; si no se menciona, dejar pin vacío ""
+- Presentaciones individuales (8, 14, 16 oz): extraer pin del texto; si no se menciona, dejar pin vacío "" (aplica a cualquier llenadora)
+- Presentaciones familiares (28, 35, 40, 80 oz) y 4 lbs: pin siempre "g" (aplica a cualquier llenadora)
+- 4 oz: pin siempre "p" (aplica a cualquier llenadora)
 - Si falta dato, error: "Falta: <campo>"
 """
 
@@ -99,15 +105,20 @@ def humanizar(datos: dict, pin_explicito: bool = False) -> dict:
     canastas     = datos.get("canastas", 0)
     mercado      = datos.get("mercado", "L")
 
-    # Pin: forzar grande para Mespack 3 y Chub, excepto M3 con 8oz o 14oz
+    # Pin: lógica según presentación (aplica a cualquier llenadora)
     pin = datos.get("pin") or "p"
     requiere_confirmacion_pin = False
-    if maquina in MAQUINAS_PIN_GRANDE:
-        if maquina == "Mespack 3" and presentacion in ("8", "14"):
-            if not pin_explicito:
-                requiere_confirmacion_pin = True
-        else:
-            pin = "g"
+    if presentacion in PRESENTACIONES_FAMILIARES or presentacion == '4lbs':
+        # Familiares (28, 35, 40, 80 oz) y 4 lbs → siempre pin grande
+        pin = "g"
+    elif presentacion in PRESENTACIONES_INDIVIDUALES:
+        # Individuales (8, 14, 16 oz) → preguntar pin si no se mencionó explícitamente
+        if not pin_explicito:
+            requiere_confirmacion_pin = True
+    elif maquina in MAQUINAS_PIN_GRANDE:
+        # Otras presentaciones en M3/Chub → forzar grande
+        pin = "g"
+    # 4 oz en cualquier llenadora → queda como "p" (default)
 
     cajas_por_canasta = calcular_cajas(producto, presentacion, pin)
     if cajas_por_canasta is None:
