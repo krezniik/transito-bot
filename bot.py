@@ -612,6 +612,20 @@ async def confirmar_pin_proyeccion(update: Update, context: ContextTypes.DEFAULT
         parse_mode=ParseMode.MARKDOWN
     )
 
+# -- /fecha --------------------------------------------------------------------
+async def cmd_fecha(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not autorizado(update): return
+    now = datetime.now(TZ)
+    dia_juliano = now.timetuple().tm_yday
+    semana      = now.isocalendar().week
+    texto = (
+        f"📅 *Fecha actual*\n\n"
+        f"• Fecha:       {now.strftime('%d/%m/%Y')}\n"
+        f"• Día juliano: {dia_juliano}\n"
+        f"• Semana:      {semana}"
+    )
+    await update.message.reply_text(texto, parse_mode=ParseMode.MARKDOWN)
+
 # -- /cancelar_alerta ---------------------------------------------------------
 async def cmd_cancelar_alerta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not autorizado(update): return
@@ -637,6 +651,7 @@ async def post_init(application):
         BotCommand("recordatorio",    "Activar alerta periódica"),
         BotCommand("cancelar_alerta", "Desactivar alerta"),
         BotCommand("proyeccion",      "Guardar canastas estimadas al cierre"),
+        BotCommand("fecha",           "Ver fecha, día juliano y semana"),
         BotCommand("ayuda",           "Guía completa"),
     ])
     scheduler.start()
@@ -721,6 +736,7 @@ def main():
     app.add_handler(CommandHandler("recordatorio",    cmd_recordatorio))
     app.add_handler(CommandHandler("cancelar_alerta", cmd_cancelar_alerta))
     app.add_handler(CommandHandler("proyeccion",      cmd_proyeccion))
+    app.add_handler(CommandHandler("fecha",           cmd_fecha))
     app.add_handler(MessageHandler(filters.VOICE,     handle_voice))
     app.add_handler(CallbackQueryHandler(confirmar_pin,          pattern="^pin:"))
     app.add_handler(CallbackQueryHandler(confirmar_pin_proyeccion, pattern="^pin_proy:"))
