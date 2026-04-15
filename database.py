@@ -73,6 +73,26 @@ class Database:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_lotes_turno ON lotes(turno_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_lotes_user  ON lotes(user_id, timestamp)")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS config (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            """)
+            conn.commit()
+
+    # ── Config ────────────────────────────────────────────────────────────────
+    def get_config(self, key: str, default: str = "") -> str:
+        with self._conn() as conn:
+            row = conn.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
+        return row["value"] if row else default
+
+    def set_config(self, key: str, value: str):
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO config (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, value)
+            )
             conn.commit()
 
     # ── Turnos ────────────────────────────────────────────────────────────────

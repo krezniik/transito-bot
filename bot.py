@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from telegram import Update, BotCommand, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
-    filters, ContextTypes, ConversationHandler
+    filters, ContextTypes, ConversationHandler, ApplicationHandlerStop
 )
 from telegram.constants import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -39,6 +39,7 @@ TIMEZONE          = os.getenv("TIMEZONE", "America/Guatemala")
 TZ                = ZoneInfo(TIMEZONE)
 db        = Database()
 scheduler = AsyncIOScheduler(timezone=TIMEZONE)
+_bot_pausado: bool = db.get_config("pausado") == "1"
 import anthropic, openai
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 openai_client    = openai.OpenAI(api_key=OPENAI_API_KEY)
@@ -78,9 +79,44 @@ def autorizado(update: Update) -> bool:
     if not ALLOWED_USERS:
         return False
     return update.effective_user.id in ALLOWED_USERS
+# -- Interceptor de pausa (group=-1, corre antes que todos los handlers) -------
+async def paused_interceptor(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _bot_pausado:
+        return
+    # /start siempre pasa — es el comando para reactivar
+    if update.message and (update.message.text or "").startswith("/start"):
+        return
+    if update.message:
+        await update.message.reply_text(
+            "⏸ *Bot pausado.* No hay producción hoy.\nUsa /start para reactivar.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    raise ApplicationHandlerStop
+
+# -- /stop ---------------------------------------------------------------------
+async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global _bot_pausado
+    if not autorizado(update): return
+    _bot_pausado = True
+    db.set_config("pausado", "1")
+    await update.message.reply_text(
+        "⏸ *Bot pausado.* Los comandos y reportes automáticos están desactivados.\n"
+        "Usa /start cuando quieras reanudar.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
 # -- /start --------------------------------------------------------------------
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global _bot_pausado
     if not autorizado(update): return
+    if _bot_pausado:
+        _bot_pausado = False
+        db.set_config("pausado", "0")
+        await update.message.reply_text(
+            "▶️ *Bot reactivado.* ¡Listo para registrar lotes!",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
     texto = (
         "👋 *Bot de Tránsito* listo.\n\n"
         "*Comandos principales:*\n"
@@ -638,7 +674,8 @@ async def cmd_cancelar_alerta(update: Update, context: ContextTypes.DEFAULT_TYPE
 # -- Arranque ------------------------------------------------------------------
 async def post_init(application):
     await application.bot.set_my_commands([
-        BotCommand("start",           "Iniciar el bot"),
+        BotCommand("start",           "Iniciar / reactivar el bot"),
+        BotCommand("stop",            "Pausar el bot (días sin producción)"),
         BotCommand("lote",            "Registrar un lote"),
         BotCommand("lotes",           "Registrar varios lotes a la vez"),
         BotCommand("resumen",         "Ver tránsito del turno"),
@@ -658,6 +695,9 @@ async def post_init(application):
     # -- Reportes automáticos por turno 
     allowed = list(ALLOWED_USERS) if ALLOWED_USERS else []
     async def reporte_automatico(bot, turno_nombre):
+        if _bot_pausado:
+            logger.info(f"Reporte automático omitido — bot pausado ({turno_nombre})")
+            return
         now = datetime.now(TZ)
         for uid in allowed:
             try:
@@ -722,7 +762,9 @@ def main():
         .post_init(post_init)
         .build()
     )
+    app.add_handler(MessageHandler(filters.ALL,        paused_interceptor), group=-1)
     app.add_handler(CommandHandler("start",           cmd_start))
+    app.add_handler(CommandHandler("stop",            cmd_stop))
     app.add_handler(CommandHandler("ayuda",           cmd_ayuda))
     app.add_handler(CommandHandler("lote",            cmd_lote))
     app.add_handler(CommandHandler("lotes",           cmd_lotes))
